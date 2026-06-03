@@ -533,19 +533,19 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
 
         return data.Items.Select(item =>
         {
-            var sku = item.Sku ?? item.Sources.FirstOrDefault()?.Sku;
+            var sku = item.Sku ?? item.Sources?.FirstOrDefault()?.Sku;
             return new OzonProductSummary(
                 item.Id,
                 item.OfferId,
                 sku,
                 item.Name,
-                item.Price,
-                item.OldPrice,
-                item.MinPrice,
+                GetJsonDecimal(item.Price),
+                GetJsonDecimal(item.OldPrice),
+                GetJsonDecimal(item.MinPrice),
                 item.CurrencyCode,
                 item.Statuses?.StatusName ?? string.Empty,
                 sku is null ? string.Empty : $"https://www.ozon.kz/product/{sku}/",
-                item.PrimaryImage.FirstOrDefault() ?? item.Images.FirstOrDefault() ?? string.Empty);
+                (item.PrimaryImage ?? []).FirstOrDefault() ?? (item.Images ?? []).FirstOrDefault() ?? string.Empty);
         }).ToList();
     }
 
@@ -695,6 +695,29 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         return 0;
     }
 
+    private static decimal GetJsonDecimal(JsonElement value)
+    {
+        try
+        {
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+            {
+                return number;
+            }
+
+            if (value.ValueKind == JsonValueKind.String
+                && decimal.TryParse(value.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var textNumber))
+            {
+                return textNumber;
+            }
+        }
+        catch (FormatException)
+        {
+            return 0;
+        }
+
+        return 0;
+    }
+
     private static decimal GetFirstDecimal(JsonElement element, params string[] names)
     {
         foreach (var name in names)
@@ -771,20 +794,14 @@ public record OzonProductInfoItem(
     [property: JsonPropertyName("id")] long Id,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("offer_id")] string OfferId,
-    [property: JsonPropertyName("price")]
-    [property: JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
-    decimal Price,
-    [property: JsonPropertyName("old_price")]
-    [property: JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
-    decimal OldPrice,
-    [property: JsonPropertyName("min_price")]
-    [property: JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
-    decimal MinPrice,
+    [property: JsonPropertyName("price")] JsonElement Price,
+    [property: JsonPropertyName("old_price")] JsonElement OldPrice,
+    [property: JsonPropertyName("min_price")] JsonElement MinPrice,
     [property: JsonPropertyName("currency_code")] string CurrencyCode,
     [property: JsonPropertyName("sku")] long? Sku,
-    [property: JsonPropertyName("sources")] IReadOnlyList<OzonProductSource> Sources,
-    [property: JsonPropertyName("images")] IReadOnlyList<string> Images,
-    [property: JsonPropertyName("primary_image")] IReadOnlyList<string> PrimaryImage,
+    [property: JsonPropertyName("sources")] IReadOnlyList<OzonProductSource>? Sources,
+    [property: JsonPropertyName("images")] IReadOnlyList<string>? Images,
+    [property: JsonPropertyName("primary_image")] IReadOnlyList<string>? PrimaryImage,
     [property: JsonPropertyName("statuses")] OzonProductStatuses? Statuses);
 
 public record OzonProductSource(
