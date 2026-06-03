@@ -232,15 +232,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
     {
         EnsureConfigured();
 
-        string content;
-        try
-        {
-            content = await SendSupplyOrderListRequestAsync("/v1/supply-order/list", dateFrom, dateTo, cancellationToken);
-        }
-        catch (HttpRequestException)
-        {
-            return await GetSupplyOrdersFromFboPostingsAsync(dateFrom, dateTo, cancellationToken);
-        }
+        var content = await SendSupplyOrderListRequestAsync("/v2/supply-order/list", dateFrom, dateTo, cancellationToken);
 
         var data = JsonSerializer.Deserialize<JsonElement>(content, JsonOptions);
         var orders = TryGetArray(data, "supply_orders")
@@ -251,32 +243,16 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             ?? [];
 
         var result = orders.Select(order => new OzonSupplyOrderSummary(
-            GetString(order, "supply_order_id", "supply_order_number", "id"),
-            GetString(order, "status"),
-            GetString(order, "warehouse_name", "warehouse", "delivery_method_name"),
-            GetString(order, "created_at", "createdAt", "created_date"),
-            GetString(order, "updated_at", "updatedAt", "updated_date"),
-            GetInt(order, "items_count", "itemsCount", "total_items_count", "total_quantity")))
+            GetString(order, "supply_order_id", "supply_order_number", "order_id", "number", "id"),
+            GetString(order, "status", "state", "state_name"),
+            BuildSupplyOrderWarehouseName(order),
+            GetSupplyOrderShipmentDate(order),
+            GetSupplyOrderCompletionDate(order),
+            GetInt(order, "sku_count", "skus_count", "items_count", "itemsCount", "total_items_count", "total_quantity", "quantity")))
             .ToList();
-        return result.Count > 0 ? result : await GetSupplyOrdersFromFboPostingsAsync(dateFrom, dateTo, cancellationToken);
-    }
-
-    private async Task<IReadOnlyList<OzonSupplyOrderSummary>> GetSupplyOrdersFromFboPostingsAsync(
-        DateOnly dateFrom,
-        DateOnly dateTo,
-        CancellationToken cancellationToken)
-    {
-        var postings = await GetFboPostingsAsync(dateFrom, dateTo, cancellationToken);
-        return postings
-            .OrderByDescending(posting => posting.CreatedAt)
-            .Take(100)
-            .Select(posting => new OzonSupplyOrderSummary(
-                posting.PostingNumber,
-                posting.Status,
-                posting.AnalyticsData?.WarehouseName ?? string.Empty,
-                posting.CreatedAt,
-                posting.InProcessAt,
-                (int)posting.Products.Sum(product => product.Quantity)))
+        return result
+            .Where(order => !string.IsNullOrWhiteSpace(order.Id))
+            .Where(order => IsSupplyOrderInRange(order, dateFrom, dateTo))
             .ToList();
     }
 
@@ -288,11 +264,13 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path);
         AddAuthHeaders(request);
-        request.Content = JsonContent.Create(new OzonSupplyOrderListRequest(
-            $"{dateFrom:yyyy-MM-dd}T00:00:00Z",
-            $"{dateTo:yyyy-MM-dd}T23:59:59Z",
-            new OzonSupplyOrderFilter([]),
-            100));
+        request.Content = path == "/v2/supply-order/list"
+            ? JsonContent.Create(new OzonSupplyOrderListV2Request(0, 100))
+            : JsonContent.Create(new OzonSupplyOrderListRequest(
+                $"{dateFrom:yyyy-MM-dd}T00:00:00Z",
+                $"{dateTo:yyyy-MM-dd}T23:59:59Z",
+                new OzonSupplyOrderFilter([]),
+                100));
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -301,7 +279,14 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             return content;
         }
 
-        if (path != "/v1/fbo/supply-order/list" && response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        if (path == "/v2/supply-order/list"
+            && (response.StatusCode == System.Net.HttpStatusCode.NotFound
+                || response.StatusCode == System.Net.HttpStatusCode.BadRequest))
+        {
+            return await SendSupplyOrderListRequestAsync("/v1/supply-order/list", dateFrom, dateTo, cancellationToken);
+        }
+
+        if (path == "/v1/supply-order/list" && response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return await SendSupplyOrderListRequestAsync("/v1/fbo/supply-order/list", dateFrom, dateTo, cancellationToken);
         }
@@ -683,16 +668,113 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         return string.Empty;
     }
 
+    private static string GetNestedString(JsonElement element, string parent, params string[] names)
+    {
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(parent, out var nested)
+            || nested.ValueKind != JsonValueKind.Object)
+        {
+            return string.Empty;
+        }
+
+        return GetString(nested, names);
+    }
+
+    private static string FirstFilled(params string[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+    }
+
+    private static string BuildSupplyOrderWarehouseName(JsonElement order)
+    {
+        var cluster = FirstFilled(
+            GetString(order, "cluster_name", "cluster", "placement_cluster", "placement_cluster_name", "region_name"),
+            GetNestedString(order, "cluster", "name"));
+        var warehouse = FirstFilled(
+            GetString(order, "warehouse_name", "supply_warehouse_name", "delivery_method_name", "warehouse"),
+            GetNestedString(order, "warehouse", "name"),
+            GetNestedString(order, "supply_warehouse", "name"),
+            GetNestedString(order, "delivery_method", "name"));
+
+        return string.Join(" / ", new[] { cluster, warehouse }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static string GetSupplyOrderShipmentDate(JsonElement order)
+    {
+        return FirstFilled(
+            GetNestedString(order, "timeslot", "from", "date_from", "start_at"),
+            GetNestedString(order, "local_timeslot", "from", "date_from", "start_at"),
+            GetString(order, "shipment_date", "shipping_date", "delivery_date", "created_at", "createdAt", "created_date"));
+    }
+
+    private static string GetSupplyOrderCompletionDate(JsonElement order)
+    {
+        return FirstFilled(
+            GetString(order, "completed_at", "completedAt", "closed_at", "closedAt", "updated_at", "updatedAt", "updated_date"),
+            GetNestedString(order, "timeslot", "to", "date_to", "end_at"),
+            GetNestedString(order, "local_timeslot", "to", "date_to", "end_at"));
+    }
+
+    private static bool IsSupplyOrderInRange(OzonSupplyOrderSummary order, DateOnly dateFrom, DateOnly dateTo)
+    {
+        var value = FirstFilled(order.CreatedAt, order.UpdatedAt);
+        if (!TryGetDateOnly(value, out var date))
+        {
+            return true;
+        }
+
+        return date >= dateFrom && date <= dateTo;
+    }
+
+    private static bool TryGetDateOnly(string value, out DateOnly date)
+    {
+        date = default;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        if (DateTimeOffset.TryParse(
+                value,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal,
+                out var offset))
+        {
+            date = DateOnly.FromDateTime(offset.UtcDateTime);
+            return true;
+        }
+
+        if (DateTime.TryParse(
+                value,
+                new System.Globalization.CultureInfo("ru-RU"),
+                System.Globalization.DateTimeStyles.None,
+                out var localDate))
+        {
+            date = DateOnly.FromDateTime(localDate);
+            return true;
+        }
+
+        return false;
+    }
+
     private static int GetInt(JsonElement element, params string[] names)
     {
         foreach (var name in names)
         {
-            if (element.ValueKind == JsonValueKind.Object
-                && element.TryGetProperty(name, out var value)
-                && value.ValueKind == JsonValueKind.Number
-                && value.TryGetInt32(out var result))
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value))
             {
-                return result;
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var numericResult))
+            {
+                return numericResult;
+            }
+
+            if (value.ValueKind == JsonValueKind.String
+                && int.TryParse(value.GetString(), out var textResult))
+            {
+                return textResult;
             }
         }
 
@@ -1007,6 +1089,10 @@ public record OzonCashFlowStatementRequest(
     [property: JsonPropertyName("date")] OzonFinanceDateRange Date,
     [property: JsonPropertyName("page")] int Page,
     [property: JsonPropertyName("page_size")] int PageSize);
+
+public record OzonSupplyOrderListV2Request(
+    [property: JsonPropertyName("from_supply_order_id")] long FromSupplyOrderId,
+    [property: JsonPropertyName("limit")] int Limit);
 
 public record OzonSupplyOrderListRequest(
     [property: JsonPropertyName("since")] string Since,

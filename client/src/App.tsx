@@ -3510,19 +3510,21 @@ function App() {
                   </div>
                   <div className="data-table">
                     <div className="table-row ozon-supply-row table-head">
-                      <span>ID</span>
+                      <span>Номер заявки</span>
                       <span>Статус</span>
-                      <span>Склад</span>
-                      <span>Товаров</span>
-                      <span>Создана</span>
+                      <span>Кластер / точка</span>
+                      <span>SKU / количество</span>
+                      <span>Дата отгрузки</span>
+                      <span>Дата завершения</span>
                     </div>
                     {ozonSupplyOrders.map((order) => (
                       <div className="table-row ozon-supply-row" key={order.id || `${order.createdAt}-${order.status}`}>
                         <strong>{order.id || '-'}</strong>
-                        <span>{order.status || '-'}</span>
+                        <span>{translateOzonSupplyStatus(order.status)}</span>
                         <span>{order.warehouseName || '-'}</span>
                         <span>{order.itemsCount || '-'}</span>
-                        <span>{order.createdAt ? formatDateTime(order.createdAt) : '-'}</span>
+                        <span>{formatOzonDate(order.createdAt)}</span>
+                        <span>{formatOzonDate(order.updatedAt)}</span>
                       </div>
                     ))}
                     {ozonSupplyOrders.length === 0 && (
@@ -5626,6 +5628,26 @@ function translateSupplyStatus(status: SupplyStatus) {
   return statuses[status] ?? status
 }
 
+function translateOzonSupplyStatus(status?: string) {
+  if (!status) {
+    return '-'
+  }
+
+  const statuses: Record<string, string> = {
+    completed: 'Завершено',
+    complete: 'Завершено',
+    accepted: 'Принято',
+    created: 'Создано',
+    new: 'Создано',
+    in_progress: 'В работе',
+    processing: 'В работе',
+    canceled: 'Отменено',
+    cancelled: 'Отменено',
+  }
+
+  return statuses[status.toLowerCase()] ?? status
+}
+
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString('ru-RU', {
     day: '2-digit',
@@ -5634,6 +5656,15 @@ function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function formatOzonDate(value?: string) {
+  if (!value) {
+    return '-'
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : formatDateTime(value)
 }
 
 function getRemainingDays(value?: string) {
