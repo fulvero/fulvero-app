@@ -288,7 +288,7 @@ const featureGroups = [
       { id: 'supplies.editor', label: 'Редактор поставок' },
       { id: 'supplies.all', label: 'Все поставки' },
       { id: 'supplies.archive', label: 'Архив поставок' },
-      { id: 'supplies.analytics', label: 'Аналитика поставок' },
+      { id: 'supplies.analytics', label: 'Аналитика по товару' },
       { id: 'supplies.ozon', label: 'Поставки Ozon API' },
     ],
   },
@@ -2576,7 +2576,7 @@ function App() {
             {user?.position && <small>{user.position}</small>}
           </span>
           <button type="button" className="profile-button" onClick={() => setShowProfileModal(true)}>
-            {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : 'Профиль'}
+            {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <span className="default-avatar" aria-hidden="true" />}
             <span className="presence-dot is-online" aria-hidden="true" />
           </button>
           <button type="button" className="logout-button" onClick={confirmLogout}>
@@ -3117,10 +3117,7 @@ function App() {
                       <span>На счету Ozon</span>
                       <strong>
                         {analytics
-                          ? formatMoney(
-                              analytics.accountBalance?.amount ?? 0,
-                              analytics.accountBalance?.currencyCode || 'RUB',
-                            )
+                          ? formatPlainNumber(analytics.accountBalance?.amount ?? 0)
                           : '-'}
                       </strong>
                     </div>
@@ -3346,7 +3343,7 @@ function App() {
                   onClick={() => setSupplySubTab('all')}
                   hidden={!hasSubFeature('supplies.all', 'supplies')}
                 >
-                  Все внутренние
+                  Все поставки
                 </button>
                 {user?.role === 'Admin' && (
                   <button
@@ -3355,7 +3352,7 @@ function App() {
                     onClick={() => setSupplySubTab('analytics')}
                     hidden={!hasSubFeature('supplies.analytics', 'supplies')}
                   >
-                  Аналитика поставок
+                  Аналитика по товару
                 </button>
                 )}
                 <button
@@ -5467,6 +5464,12 @@ function formatMoney(value: number, currency: string) {
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
     currency: currency || 'KZT',
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+function formatPlainNumber(value: number) {
+  return new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 2,
   }).format(value)
 }

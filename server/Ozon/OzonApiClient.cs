@@ -232,7 +232,15 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
     {
         EnsureConfigured();
 
-        var content = await SendSupplyOrderListRequestAsync("/v1/supply-order/list", dateFrom, dateTo, cancellationToken);
+        string content;
+        try
+        {
+            content = await SendSupplyOrderListRequestAsync("/v1/supply-order/list", dateFrom, dateTo, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return await GetSupplyOrdersFromFboPostingsAsync(dateFrom, dateTo, cancellationToken);
+        }
 
         var data = JsonSerializer.Deserialize<JsonElement>(content, JsonOptions);
         var orders = TryGetArray(data, "supply_orders")
@@ -242,13 +250,33 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             ?? TryGetArray(data, "result")
             ?? [];
 
-        return orders.Select(order => new OzonSupplyOrderSummary(
+        var result = orders.Select(order => new OzonSupplyOrderSummary(
             GetString(order, "supply_order_id", "supply_order_number", "id"),
             GetString(order, "status"),
             GetString(order, "warehouse_name", "warehouse", "delivery_method_name"),
             GetString(order, "created_at", "createdAt", "created_date"),
             GetString(order, "updated_at", "updatedAt", "updated_date"),
             GetInt(order, "items_count", "itemsCount", "total_items_count", "total_quantity")))
+            .ToList();
+        return result.Count > 0 ? result : await GetSupplyOrdersFromFboPostingsAsync(dateFrom, dateTo, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<OzonSupplyOrderSummary>> GetSupplyOrdersFromFboPostingsAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        CancellationToken cancellationToken)
+    {
+        var postings = await GetFboPostingsAsync(dateFrom, dateTo, cancellationToken);
+        return postings
+            .OrderByDescending(posting => posting.CreatedAt)
+            .Take(100)
+            .Select(posting => new OzonSupplyOrderSummary(
+                posting.PostingNumber,
+                posting.Status,
+                posting.AnalyticsData?.WarehouseName ?? string.Empty,
+                posting.CreatedAt,
+                posting.InProcessAt,
+                (int)posting.Products.Sum(product => product.Quantity)))
             .ToList();
     }
 
@@ -926,8 +954,14 @@ public record OzonPostingListResult(
 public record OzonPosting(
     [property: JsonPropertyName("posting_number")] string PostingNumber,
     [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("created_at")] string CreatedAt,
+    [property: JsonPropertyName("in_process_at")] string InProcessAt,
     [property: JsonPropertyName("products")] IReadOnlyList<OzonPostingProduct> Products,
+    [property: JsonPropertyName("analytics_data")] OzonPostingAnalyticsData? AnalyticsData,
     [property: JsonPropertyName("financial_data")] OzonPostingFinancialData? FinancialData);
+
+public record OzonPostingAnalyticsData(
+    [property: JsonPropertyName("warehouse_name")] string WarehouseName);
 
 public record OzonPostingProduct(
     [property: JsonPropertyName("sku")] long Sku,
