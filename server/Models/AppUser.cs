@@ -3,6 +3,8 @@ namespace LShopOzonWebReact.Api.Models;
 public class AppUser
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
     public string UserName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string Position { get; set; } = string.Empty;

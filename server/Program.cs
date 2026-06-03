@@ -1,14 +1,19 @@
 using System.Security.Claims;
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using System.IO.Compression;
+using LShopOzonWebReact.Api.Billing;
 using LShopOzonWebReact.Api.Data;
 using LShopOzonWebReact.Api.Hubs;
 using LShopOzonWebReact.Api.Models;
 using LShopOzonWebReact.Api.Ozon;
 using LShopOzonWebReact.Api.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -22,10 +27,15 @@ builder.Services.AddOpenApi();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 builder.Services.Configure<OzonOptions>(builder.Configuration.GetSection("Ozon"));
+builder.Services.Configure<YooKassaOptions>(builder.Configuration.GetSection("YooKassa"));
 builder.Services.AddHttpClient<OzonApiClient>((serviceProvider, client) =>
 {
     var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OzonOptions>>().Value;
     client.BaseAddress = new Uri(options.BaseUrl);
+});
+builder.Services.AddHttpClient("YooKassa", client =>
+{
+    client.BaseAddress = new Uri("https://api.yookassa.ru");
 });
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services
@@ -61,6 +71,8 @@ builder.Services
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, "data-protection-keys")));
 builder.Services.AddSignalR();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -107,33 +119,124 @@ if (hasStaticClient)
 app.UseCors("ReactDev");
 app.UseAuthentication();
 app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    if (context.User.Identity?.IsAuthenticated != true
+        || SubscriptionAccess.IsExemptPath(context.Request.Path))
+    {
+        await next();
+        return;
+    }
+
+    using var scope = context.RequestServices.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var companyIdClaim = context.User.FindFirstValue("company_id");
+    if (!Guid.TryParse(companyIdClaim, out var companyId))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    var company = await db.Companies.AsNoTracking().FirstOrDefaultAsync(item => item.Id == companyId);
+    if (company is null)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    if (!SubscriptionAccess.IsActive(company))
+    {
+        context.Response.StatusCode = StatusCodes.Status402PaymentRequired;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            message = "Демо-доступ закончился. Требуется подписка через ЮKassa.",
+            company.SubscriptionStatus,
+            company.TrialEndsAt,
+            company.SubscriptionPaidUntil
+        });
+        return;
+    }
+
+    await next();
+});
 
 app.MapHub<AppHub>("/hubs/live").RequireAuthorization();
 
-app.MapPost("/api/setup/admin", async (CreateInitialAdminRequest request, AppDbContext db) =>
+app.MapPost("/api/auth/register", async (RegisterCompanyRequest request, AppDbContext db, JwtTokenService tokenService) =>
 {
-    if (await db.Users.AnyAsync())
+    if (string.IsNullOrWhiteSpace(request.CompanyName)
+        || string.IsNullOrWhiteSpace(request.UserName)
+        || string.IsNullOrWhiteSpace(request.Password))
     {
-        return Results.Conflict("Первый админ уже создан.");
+        return Results.BadRequest("Название компании, логин и пароль обязательны.");
     }
 
-    if (string.IsNullOrWhiteSpace(request.UserName) || string.IsNullOrWhiteSpace(request.Password))
+    var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
+    if (await db.Companies.AnyAsync(company => company.LoginName == companyLoginName))
     {
-        return Results.BadRequest("Логин и пароль обязательны.");
+        return Results.Conflict("Компания с таким названием уже зарегистрирована.");
     }
+
+    var trialEndsAt = DateTimeOffset.UtcNow.AddDays(3);
+    var company = new Company
+    {
+        Name = request.CompanyName.Trim(),
+        LoginName = companyLoginName,
+        SubscriptionStatus = CompanySubscriptionStatuses.Trial,
+        TrialEndsAt = trialEndsAt
+    };
 
     var admin = new AppUser
     {
+        Company = company,
         UserName = request.UserName.Trim(),
         DisplayName = request.DisplayName.Trim(),
         PasswordHash = PasswordHasher.Hash(request.Password),
         Role = UserRoles.Admin
     };
 
+    db.Companies.Add(company);
     db.Users.Add(admin);
     await db.SaveChangesAsync();
 
-    return Results.Created("/api/admin/users", UserResponses.Current(admin));
+    return Results.Created("/api/auth/register", new AuthResponse(
+        tokenService.CreateToken(admin),
+        UserResponses.Current(admin)));
+});
+
+app.MapPost("/api/setup/admin", async (RegisterCompanyRequest request, AppDbContext db, JwtTokenService tokenService) =>
+{
+    if (await db.Users.AnyAsync())
+    {
+        return Results.Conflict("Первый админ уже создан.");
+    }
+
+    var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
+    var trialEndsAt = DateTimeOffset.UtcNow.AddDays(3);
+    var company = new Company
+    {
+        Name = request.CompanyName.Trim(),
+        LoginName = companyLoginName,
+        SubscriptionStatus = CompanySubscriptionStatuses.Trial,
+        TrialEndsAt = trialEndsAt
+    };
+
+    var admin = new AppUser
+    {
+        Company = company,
+        UserName = request.UserName.Trim(),
+        DisplayName = request.DisplayName.Trim(),
+        PasswordHash = PasswordHasher.Hash(request.Password),
+        Role = UserRoles.Admin
+    };
+
+    db.Companies.Add(company);
+    db.Users.Add(admin);
+    await db.SaveChangesAsync();
+
+    return Results.Created("/api/admin/users", new AuthResponse(
+        tokenService.CreateToken(admin),
+        UserResponses.Current(admin)));
 });
 
 var products = new[]
@@ -173,8 +276,11 @@ app.MapPost("/api/auth/login", async (
     AppDbContext db,
     JwtTokenService tokenService) =>
 {
+    var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
     var user = await db.Users
-        .SingleOrDefaultAsync(item => item.UserName == request.UserName);
+        .Include(item => item.Company)
+        .SingleOrDefaultAsync(item => item.UserName == request.UserName
+            && item.Company.LoginName == companyLoginName);
 
     if (user is null || !user.IsActive || !PasswordHasher.Verify(request.Password, user.PasswordHash))
     {
@@ -202,7 +308,7 @@ app.MapPost("/api/auth/heartbeat", async (AppDbContext db, ClaimsPrincipal princ
         return Results.Unauthorized();
     }
 
-    var user = await db.Users.FindAsync(userId);
+    var user = await db.Users.Include(item => item.Company).FirstOrDefaultAsync(item => item.Id == userId);
     if (user is null || !user.IsActive)
     {
         return Results.Unauthorized();
@@ -238,7 +344,10 @@ app.MapGet("/api/auth/me", async (AppDbContext db, ClaimsPrincipal principal) =>
         return Results.Unauthorized();
     }
 
-    var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(item => item.Id == userId && item.IsActive);
+    var user = await db.Users
+        .AsNoTracking()
+        .Include(item => item.Company)
+        .FirstOrDefaultAsync(item => item.Id == userId && item.IsActive);
     return user is null ? Results.Unauthorized() : Results.Ok(UserResponses.Current(user));
 }).RequireAuthorization();
 
@@ -283,7 +392,7 @@ app.MapPost("/api/profile/avatar", async (
         return Results.BadRequest("Ожидается файл изображения.");
     }
 
-    var user = await db.Users.FindAsync(new object[] { userId }, cancellationToken);
+    var user = await db.Users.Include(item => item.Company).FirstOrDefaultAsync(item => item.Id == userId, cancellationToken);
     if (user is null || !user.IsActive)
     {
         return Results.Unauthorized();
@@ -332,10 +441,12 @@ app.MapPost("/api/profile/avatar", async (
     return Results.Ok(UserResponses.Current(user));
 }).DisableAntiforgery().RequireAuthorization();
 
-app.MapGet("/api/admin/users", async (AppDbContext db) =>
+app.MapGet("/api/admin/users", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
     var onlineAfter = DateTimeOffset.UtcNow.AddMinutes(-2);
+    var companyId = CompanyAccess.GetCompanyId(principal);
     return await db.Users
+        .Where(user => user.CompanyId == companyId)
         .OrderBy(user => user.UserName)
         .Select(user => new UserListItem(
             user.Id,
@@ -360,7 +471,8 @@ app.MapPost("/api/admin/users", async (CreateUserRequest request, AppDbContext d
         return Results.BadRequest("Логин и пароль обязательны.");
     }
 
-    var exists = await db.Users.AnyAsync(user => user.UserName == request.UserName);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var exists = await db.Users.AnyAsync(user => user.CompanyId == companyId && user.UserName == request.UserName);
     if (exists)
     {
         return Results.Conflict("Пользователь с таким логином уже есть.");
@@ -369,6 +481,7 @@ app.MapPost("/api/admin/users", async (CreateUserRequest request, AppDbContext d
     var role = request.Role == UserRoles.Admin ? UserRoles.Admin : UserRoles.User;
     var user = new AppUser
     {
+        CompanyId = companyId,
         UserName = request.UserName.Trim(),
         DisplayName = request.DisplayName.Trim(),
         Position = request.Position.Trim(),
@@ -401,7 +514,8 @@ app.MapPut("/api/admin/users/{id:guid}/settings", async (
     AppDbContext db,
     ClaimsPrincipal principal) =>
 {
-    var user = await db.Users.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var user = await db.Users.FirstOrDefaultAsync(item => item.Id == id && item.CompanyId == companyId);
     if (user is null)
     {
         return Results.NotFound();
@@ -441,7 +555,8 @@ app.MapPut("/api/admin/users/{id:guid}/password", async (
         return Results.BadRequest("Пароль обязателен.");
     }
 
-    var user = await db.Users.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var user = await db.Users.FirstOrDefaultAsync(item => item.Id == id && item.CompanyId == companyId);
     if (user is null)
     {
         return Results.NotFound();
@@ -462,7 +577,8 @@ app.MapDelete("/api/admin/users/{id:guid}", async (Guid id, AppDbContext db, Cla
         return Results.BadRequest("Нельзя удалить самого себя.");
     }
 
-    var user = await db.Users.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var user = await db.Users.FirstOrDefaultAsync(item => item.Id == id && item.CompanyId == companyId);
     if (user is null)
     {
         return Results.NotFound();
@@ -606,37 +722,43 @@ app.MapGet("/api/admin/backups/{fileName}", (string fileName, IWebHostEnvironmen
     return Results.File(fullPath, "application/gzip", fileName);
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
-app.MapGet("/api/admin/ozon-status", async (
+app.MapGet("/api/integrations/ozon", async (
     OzonApiClient ozonApi,
     Microsoft.Extensions.Options.IOptions<OzonOptions> options,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    IDataProtectionProvider dataProtectionProvider,
     CancellationToken cancellationToken) =>
 {
+    var protector = dataProtectionProvider.CreateProtector("Fulvero.OzonCredentials.v1");
     var value = options.Value;
-    var configured = !string.IsNullOrWhiteSpace(value.ClientId)
-        && !string.IsNullOrWhiteSpace(value.ApiKey);
+    var credentials = await CompanyAccess.GetOzonCredentialsAsync(db, principal, protector, value);
+    var configured = !string.IsNullOrWhiteSpace(credentials.ClientId)
+        && !string.IsNullOrWhiteSpace(credentials.ApiKey);
 
     if (!configured)
     {
         return Results.Ok(new OzonIntegrationStatusResponse(
             false,
             false,
-            "Ozon ClientId или ApiKey не заданы в .env",
+            "Ozon ID или API-ключ не заданы для компании.",
             value.BaseUrl,
-            AppPublicText.MaskSecret(value.ClientId),
-            AppPublicText.MaskSecret(value.ApiKey),
+            AppPublicText.MaskSecret(credentials.ClientId),
+            AppPublicText.MaskSecret(credentials.ApiKey),
             DateTimeOffset.UtcNow));
     }
 
     try
     {
+        ozonApi.UseCredentials(credentials.ClientId, credentials.ApiKey);
         var result = await ozonApi.GetProductListAsync(1, cancellationToken);
         return Results.Ok(new OzonIntegrationStatusResponse(
             true,
             true,
             $"Ozon API отвечает. Найдено товаров: {result.Total}",
             value.BaseUrl,
-            AppPublicText.MaskSecret(value.ClientId),
-            AppPublicText.MaskSecret(value.ApiKey),
+            AppPublicText.MaskSecret(credentials.ClientId),
+            AppPublicText.MaskSecret(credentials.ApiKey),
             DateTimeOffset.UtcNow));
     }
     catch (Exception exception)
@@ -646,10 +768,45 @@ app.MapGet("/api/admin/ozon-status", async (
             false,
             AppPublicText.GetPublicOzonError(exception),
             value.BaseUrl,
-            AppPublicText.MaskSecret(value.ClientId),
-            AppPublicText.MaskSecret(value.ApiKey),
+            AppPublicText.MaskSecret(credentials.ClientId),
+            AppPublicText.MaskSecret(credentials.ApiKey),
             DateTimeOffset.UtcNow));
     }
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+
+app.MapPut("/api/integrations/ozon", async (
+    UpdateOzonIntegrationRequest request,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    IDataProtectionProvider dataProtectionProvider) =>
+{
+    if (string.IsNullOrWhiteSpace(request.ClientId) || string.IsNullOrWhiteSpace(request.ApiKey))
+    {
+        return Results.BadRequest("Ozon ID и API-ключ обязательны.");
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var company = await db.Companies.FindAsync(companyId);
+    if (company is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var protector = dataProtectionProvider.CreateProtector("Fulvero.OzonCredentials.v1");
+    company.OzonClientIdProtected = protector.Protect(request.ClientId.Trim());
+    company.OzonApiKeyProtected = protector.Protect(request.ApiKey.Trim());
+
+    AuditLogWriter.Add(db, principal, "Настройка Ozon API", "Company", company.Id.ToString(), company.Name);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new OzonIntegrationStatusResponse(
+        true,
+        false,
+        "Ozon ID и API-ключ сохранены. Нажмите проверку, чтобы убедиться, что доступ работает.",
+        string.Empty,
+        AppPublicText.MaskSecret(request.ClientId),
+        AppPublicText.MaskSecret(request.ApiKey),
+        DateTimeOffset.UtcNow));
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
 app.MapGet("/api/chat/users", async (AppDbContext db, ClaimsPrincipal principal) =>
@@ -673,9 +830,10 @@ app.MapGet("/api/chat/users", async (AppDbContext db, ClaimsPrincipal principal)
         .ToDictionaryAsync(item => item.UserId, item => item.Count);
 
     var onlineAfter = DateTimeOffset.UtcNow.AddMinutes(-2);
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var users = await db.Users
         .AsNoTracking()
-        .Where(user => user.Id != userId && user.IsActive)
+        .Where(user => user.Id != userId && user.CompanyId == companyId && user.IsActive)
         .OrderBy(user => user.DisplayName)
         .Select(user => new
         {
@@ -718,7 +876,8 @@ app.MapGet("/api/chat/{userId:guid}/messages", async (
         return Results.Unauthorized();
     }
 
-    var chatUserExists = await db.Users.AnyAsync(user => user.Id == userId && user.IsActive);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var chatUserExists = await db.Users.AnyAsync(user => user.Id == userId && user.CompanyId == companyId && user.IsActive);
     if (!chatUserExists)
     {
         return Results.NotFound();
@@ -811,7 +970,8 @@ app.MapPost("/api/chat/{userId:guid}/messages", async (
         return Results.BadRequest("Напишите сообщение или прикрепите файл.");
     }
 
-    var receiverExists = await db.Users.AnyAsync(user => user.Id == userId && user.IsActive);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var receiverExists = await db.Users.AnyAsync(user => user.Id == userId && user.CompanyId == companyId && user.IsActive);
     if (!receiverExists)
     {
         return Results.NotFound();
@@ -940,7 +1100,13 @@ app.MapGet("/api/products", async (AppDbContext db, ClaimsPrincipal principal) =
     .WithName("GetProducts")
     .RequireAuthorization();
 
-app.MapGet("/api/ozon/products", async (OzonApiClient ozonApi, AppDbContext db, ClaimsPrincipal principal, CancellationToken cancellationToken) =>
+app.MapGet("/api/ozon/products", async (
+    OzonApiClient ozonApi,
+    Microsoft.Extensions.Options.IOptions<OzonOptions> options,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    IDataProtectionProvider dataProtectionProvider,
+    CancellationToken cancellationToken) =>
 {
     if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Products, FeatureAccess.Production, FeatureAccess.Supplies))
     {
@@ -949,6 +1115,7 @@ app.MapGet("/api/ozon/products", async (OzonApiClient ozonApi, AppDbContext db, 
 
     try
     {
+        await CompanyAccess.UseCompanyOzonCredentialsAsync(db, principal, dataProtectionProvider, options.Value, ozonApi);
         var result = await ozonApi.GetProductSummariesAsync(100, cancellationToken);
         return Results.Ok(result);
     }
@@ -958,7 +1125,62 @@ app.MapGet("/api/ozon/products", async (OzonApiClient ozonApi, AppDbContext db, 
     }
 }).RequireAuthorization();
 
-app.MapGet("/api/ozon/stocks", async (OzonApiClient ozonApi, AppDbContext db, ClaimsPrincipal principal, CancellationToken cancellationToken) =>
+app.MapGet("/api/product-supplier-links", async (AppDbContext db, ClaimsPrincipal principal) =>
+{
+    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Products, FeatureAccess.Supplies, FeatureAccess.Production))
+    {
+        return Results.Forbid();
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var links = await db.ProductSupplierLinks
+        .AsNoTracking()
+        .Where(link => link.CompanyId == companyId)
+        .Select(link => new ProductSupplierLinkResponse(link.OzonProductId, link.OfferId, link.SupplierUrl))
+        .ToListAsync();
+    return Results.Ok(links);
+}).RequireAuthorization();
+
+app.MapPut("/api/product-supplier-links/{ozonProductId:long}", async (
+    long ozonProductId,
+    UpdateProductSupplierLinkRequest request,
+    AppDbContext db,
+    ClaimsPrincipal principal) =>
+{
+    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Products, FeatureAccess.Supplies, FeatureAccess.Production))
+    {
+        return Results.Forbid();
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var link = await db.ProductSupplierLinks.FirstOrDefaultAsync(item =>
+        item.CompanyId == companyId && item.OzonProductId == ozonProductId);
+
+    if (link is null)
+    {
+        link = new ProductSupplierLink
+        {
+            CompanyId = companyId,
+            OzonProductId = ozonProductId
+        };
+        db.ProductSupplierLinks.Add(link);
+    }
+
+    link.OfferId = request.OfferId.Trim();
+    link.SupplierUrl = request.SupplierUrl.Trim();
+    link.UpdatedAt = DateTimeOffset.UtcNow;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new ProductSupplierLinkResponse(link.OzonProductId, link.OfferId, link.SupplierUrl));
+}).RequireAuthorization();
+
+app.MapGet("/api/ozon/stocks", async (
+    OzonApiClient ozonApi,
+    Microsoft.Extensions.Options.IOptions<OzonOptions> options,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    IDataProtectionProvider dataProtectionProvider,
+    CancellationToken cancellationToken) =>
 {
     if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Pooling))
     {
@@ -967,6 +1189,7 @@ app.MapGet("/api/ozon/stocks", async (OzonApiClient ozonApi, AppDbContext db, Cl
 
     try
     {
+        await CompanyAccess.UseCompanyOzonCredentialsAsync(db, principal, dataProtectionProvider, options.Value, ozonApi);
         var result = await ozonApi.GetStockSummariesAsync(100, cancellationToken);
         return Results.Ok(result);
     }
@@ -979,8 +1202,10 @@ app.MapGet("/api/ozon/stocks", async (OzonApiClient ozonApi, AppDbContext db, Cl
 app.MapPut("/api/ozon/prices", async (
     OzonPriceUpdateRequest request,
     OzonApiClient ozonApi,
+    Microsoft.Extensions.Options.IOptions<OzonOptions> options,
     AppDbContext db,
     ClaimsPrincipal principal,
+    IDataProtectionProvider dataProtectionProvider,
     CancellationToken cancellationToken) =>
 {
     if (!await FeatureAccess.HasAnyAsync(db, principal, "pooling.editPrices"))
@@ -990,6 +1215,7 @@ app.MapPut("/api/ozon/prices", async (
 
     try
     {
+        await CompanyAccess.UseCompanyOzonCredentialsAsync(db, principal, dataProtectionProvider, options.Value, ozonApi);
         var result = await ozonApi.UpdatePriceAsync(request, cancellationToken);
         AuditLogWriter.Add(
             db,
@@ -1007,18 +1233,50 @@ app.MapPut("/api/ozon/prices", async (
     }
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
-app.MapGet("/api/ozon/analytics", async (OzonApiClient ozonApi, AppDbContext db, ClaimsPrincipal principal, CancellationToken cancellationToken) =>
+app.MapGet("/api/ozon/analytics", async (
+    OzonApiClient ozonApi,
+    Microsoft.Extensions.Options.IOptions<OzonOptions> options,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    IDataProtectionProvider dataProtectionProvider,
+    CancellationToken cancellationToken) =>
 {
-    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Analytics))
+    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Analytics, FeatureAccess.Pooling))
     {
         return Results.Forbid();
     }
 
     try
     {
+        await CompanyAccess.UseCompanyOzonCredentialsAsync(db, principal, dataProtectionProvider, options.Value, ozonApi);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var result = await ozonApi.GetAnalyticsAsync(today.AddDays(-27), today, cancellationToken);
         return Results.Ok(result);
+    }
+    catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
+    {
+        return Results.Problem(exception.Message);
+    }
+}).RequireAuthorization();
+
+app.MapGet("/api/ozon/supply-orders", async (
+    OzonApiClient ozonApi,
+    Microsoft.Extensions.Options.IOptions<OzonOptions> options,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    IDataProtectionProvider dataProtectionProvider,
+    CancellationToken cancellationToken) =>
+{
+    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Supplies))
+    {
+        return Results.Forbid();
+    }
+
+    try
+    {
+        await CompanyAccess.UseCompanyOzonCredentialsAsync(db, principal, dataProtectionProvider, options.Value, ozonApi);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        return Results.Ok(await ozonApi.GetSupplyOrdersAsync(today.AddDays(-60), today, cancellationToken));
     }
     catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
     {
@@ -1916,6 +2174,117 @@ app.MapGet("/api/supplies/analytics/export", async (AppDbContext db) =>
         $"supplies-analytics-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv");
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
+app.MapPost("/api/billing/checkout", async (
+    HttpRequest currentRequest,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    IHttpClientFactory httpClientFactory,
+    Microsoft.Extensions.Options.IOptions<YooKassaOptions> options) =>
+{
+    var value = options.Value;
+    if (string.IsNullOrWhiteSpace(value.ShopId) || string.IsNullOrWhiteSpace(value.SecretKey))
+    {
+        return Results.BadRequest("ЮKassa не настроена: задайте YooKassa__ShopId и YooKassa__SecretKey.");
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var company = await db.Companies.FindAsync(companyId);
+    if (company is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var returnUrl = string.IsNullOrWhiteSpace(value.ReturnUrl)
+        ? $"{BillingPublicText.GetRequestOrigin(currentRequest)}/"
+        : value.ReturnUrl;
+    var request = new
+    {
+        amount = new
+        {
+            value = value.MonthlyAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+            currency = value.Currency
+        },
+        confirmation = new
+        {
+            type = "redirect",
+            return_url = returnUrl
+        },
+        capture = true,
+        description = $"Подписка Fulvero на 1 месяц: {company.Name}",
+        save_payment_method = true,
+        metadata = new
+        {
+            companyId = company.Id.ToString()
+        }
+    };
+
+    using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/v3/payments");
+    httpRequest.Headers.Authorization = BillingPublicText.CreateBasicAuthHeader(value.ShopId, value.SecretKey);
+    httpRequest.Headers.Add("Idempotence-Key", Guid.NewGuid().ToString());
+    httpRequest.Content = System.Net.Http.Json.JsonContent.Create(request);
+
+    using var response = await httpClientFactory.CreateClient("YooKassa").SendAsync(httpRequest);
+    var content = await response.Content.ReadAsStringAsync();
+    if (!response.IsSuccessStatusCode)
+    {
+        return Results.Problem(content, statusCode: (int)response.StatusCode);
+    }
+
+    var payment = JsonSerializer.Deserialize<JsonElement>(content);
+    var paymentId = payment.GetProperty("id").GetString() ?? string.Empty;
+    var confirmationUrl = payment.GetProperty("confirmation").GetProperty("confirmation_url").GetString() ?? string.Empty;
+
+    company.LastYooKassaPaymentId = paymentId;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new BillingCheckoutResponse(confirmationUrl, paymentId));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+
+app.MapPost("/api/billing/yookassa/webhook", async (
+    HttpRequest request,
+    AppDbContext db,
+    IDataProtectionProvider dataProtectionProvider,
+    CancellationToken cancellationToken) =>
+{
+    var body = await new StreamReader(request.Body).ReadToEndAsync(cancellationToken);
+    var payload = JsonSerializer.Deserialize<JsonElement>(body);
+    if (!payload.TryGetProperty("event", out var eventElement)
+        || eventElement.GetString() != "payment.succeeded"
+        || !payload.TryGetProperty("object", out var payment))
+    {
+        return Results.Ok();
+    }
+
+    if (!payment.TryGetProperty("metadata", out var metadata)
+        || !metadata.TryGetProperty("companyId", out var companyIdElement)
+        || !Guid.TryParse(companyIdElement.GetString(), out var companyId))
+    {
+        return Results.Ok();
+    }
+
+    var company = await db.Companies.FindAsync([companyId], cancellationToken);
+    if (company is null)
+    {
+        return Results.Ok();
+    }
+
+    company.SubscriptionStatus = CompanySubscriptionStatuses.Active;
+    company.SubscriptionPaidUntil = DateTimeOffset.UtcNow.AddMonths(1);
+    company.LastYooKassaPaymentId = payment.GetProperty("id").GetString() ?? company.LastYooKassaPaymentId;
+
+    if (payment.TryGetProperty("payment_method", out var paymentMethod)
+        && paymentMethod.TryGetProperty("saved", out var saved)
+        && saved.ValueKind == JsonValueKind.True
+        && paymentMethod.TryGetProperty("id", out var paymentMethodId))
+    {
+        var protector = dataProtectionProvider.CreateProtector("Fulvero.YooKassaPaymentMethod.v1");
+        company.YooKassaPaymentMethodIdProtected = protector.Protect(paymentMethodId.GetString() ?? string.Empty);
+    }
+
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok();
+});
+
 if (hasStaticClient)
 {
     app.MapFallbackToFile("index.html");
@@ -1924,10 +2293,23 @@ if (hasStaticClient)
 app.Run();
 
 record Product(int Id, string Name, string Status, decimal Price);
-record CreateInitialAdminRequest(string UserName, string DisplayName, string Password);
-record LoginRequest(string UserName, string Password);
+record RegisterCompanyRequest(string CompanyName, string UserName, string DisplayName, string Password);
+record LoginRequest(string CompanyName, string UserName, string Password);
 record AuthResponse(string Token, CurrentUserResponse User);
-record CurrentUserResponse(Guid Id, string UserName, string DisplayName, string Position, string Role, string AvatarUrl, List<string> AllowedFeatures);
+record CurrentUserResponse(
+    Guid Id,
+    Guid CompanyId,
+    string CompanyName,
+    string UserName,
+    string DisplayName,
+    string Position,
+    string Role,
+    string AvatarUrl,
+    List<string> AllowedFeatures,
+    string SubscriptionStatus,
+    DateTimeOffset TrialEndsAt,
+    DateTimeOffset? SubscriptionPaidUntil,
+    bool HasActiveSubscription);
 record CreateUserRequest(string UserName, string DisplayName, string Position, string Password, string Role, List<string>? AllowedFeatures);
 record UpdateUserSettingsRequest(string DisplayName, string Position, string Role, List<string>? AllowedFeatures);
 record UpdateProfileRequest(string DisplayName);
@@ -2051,6 +2433,10 @@ record SystemHealthResponse(
     string MachineName,
     string DotnetVersion);
 record BackupFileResponse(string FileName, long SizeBytes, DateTimeOffset CreatedAt);
+record BillingCheckoutResponse(string ConfirmationUrl, string PaymentId);
+record ProductSupplierLinkResponse(long OzonProductId, string OfferId, string SupplierUrl);
+record UpdateProductSupplierLinkRequest(string OfferId, string SupplierUrl);
+record UpdateOzonIntegrationRequest(string ClientId, string ApiKey);
 record OzonIntegrationStatusResponse(
     bool Configured,
     bool Success,
@@ -2059,6 +2445,7 @@ record OzonIntegrationStatusResponse(
     string ClientIdMasked,
     string ApiKeyMasked,
     DateTimeOffset CheckedAt);
+record OzonCredentials(string ClientId, string ApiKey);
 
 static class AuditLogWriter
 {
@@ -2118,6 +2505,114 @@ static class AppPublicText
     }
 }
 
+static class CompanyAccess
+{
+    public static Guid GetCompanyId(ClaimsPrincipal principal)
+    {
+        var companyIdClaim = principal.FindFirstValue("company_id");
+        if (!Guid.TryParse(companyIdClaim, out var companyId))
+        {
+            throw new InvalidOperationException("Company claim is missing.");
+        }
+
+        return companyId;
+    }
+
+    public static string NormalizeLoginName(string value) => value.Trim().ToLowerInvariant();
+
+    public static async Task UseCompanyOzonCredentialsAsync(
+        AppDbContext db,
+        ClaimsPrincipal principal,
+        IDataProtectionProvider dataProtectionProvider,
+        OzonOptions fallbackOptions,
+        OzonApiClient ozonApi)
+    {
+        var protector = dataProtectionProvider.CreateProtector("Fulvero.OzonCredentials.v1");
+        var credentials = await GetOzonCredentialsAsync(db, principal, protector, fallbackOptions);
+        if (!string.IsNullOrWhiteSpace(credentials.ClientId) && !string.IsNullOrWhiteSpace(credentials.ApiKey))
+        {
+            ozonApi.UseCredentials(credentials.ClientId, credentials.ApiKey);
+        }
+    }
+
+    public static async Task<OzonCredentials> GetOzonCredentialsAsync(
+        AppDbContext db,
+        ClaimsPrincipal principal,
+        IDataProtector protector,
+        OzonOptions fallbackOptions)
+    {
+        var companyId = GetCompanyId(principal);
+        var company = await db.Companies.AsNoTracking().FirstOrDefaultAsync(item => item.Id == companyId);
+        if (company is null)
+        {
+            return new OzonCredentials(fallbackOptions.ClientId, fallbackOptions.ApiKey);
+        }
+
+        var clientId = UnprotectOrEmpty(protector, company.OzonClientIdProtected);
+        var apiKey = UnprotectOrEmpty(protector, company.OzonApiKeyProtected);
+
+        return string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(apiKey)
+            ? new OzonCredentials(fallbackOptions.ClientId, fallbackOptions.ApiKey)
+            : new OzonCredentials(clientId, apiKey);
+    }
+
+    private static string UnprotectOrEmpty(IDataProtector protector, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return protector.Unprotect(value);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+}
+
+static class SubscriptionAccess
+{
+    public static bool IsActive(Company company)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (company.SubscriptionStatus == CompanySubscriptionStatuses.Active
+            && company.SubscriptionPaidUntil is not null
+            && company.SubscriptionPaidUntil > now)
+        {
+            return true;
+        }
+
+        return company.SubscriptionStatus == CompanySubscriptionStatuses.Trial
+            && company.TrialEndsAt > now;
+    }
+
+    public static bool IsExemptPath(PathString path) =>
+        path.StartsWithSegments("/api/auth")
+        || path.StartsWithSegments("/api/billing")
+        || path.StartsWithSegments("/api/avatars")
+        || path.StartsWithSegments("/hubs/live");
+}
+
+static class BillingPublicText
+{
+    public static AuthenticationHeaderValue CreateBasicAuthHeader(string shopId, string secretKey)
+    {
+        var token = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{shopId}:{secretKey}"));
+        return new AuthenticationHeaderValue("Basic", token);
+    }
+
+    public static string GetRequestOrigin(HttpRequest request)
+    {
+        var scheme = request.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? request.Scheme;
+        var host = request.Headers["X-Forwarded-Host"].FirstOrDefault() ?? request.Host.Value;
+        return $"{scheme}://{host}";
+    }
+}
+
 static class FeatureAccess
 {
     public const string Production = "production";
@@ -2138,6 +2633,7 @@ static class FeatureAccess
         Products,
         Supplies,
         "supplies.create",
+        "supplies.ozon",
         "supplies.all",
         Chats
     ];
@@ -2161,6 +2657,7 @@ static class FeatureAccess
         Supplies,
         "supplies.create",
         "supplies.editor",
+        "supplies.ozon",
         "supplies.all",
         "supplies.archive",
         "supplies.analytics",
@@ -2221,12 +2718,18 @@ static class UserResponses
     public static CurrentUserResponse Current(AppUser user) =>
         new(
             user.Id,
+            user.CompanyId,
+            user.Company?.Name ?? string.Empty,
             user.UserName,
             user.DisplayName,
             user.Position,
             user.Role,
             AvatarUrl(user),
-            Features(user));
+            Features(user),
+            user.Company?.SubscriptionStatus ?? CompanySubscriptionStatuses.Trial,
+            user.Company?.TrialEndsAt ?? DateTimeOffset.UtcNow,
+            user.Company?.SubscriptionPaidUntil,
+            user.Company is not null && SubscriptionAccess.IsActive(user.Company));
 
     public static List<string> Features(AppUser user) =>
         user.Role == UserRoles.Admin ? FeatureAccess.All.ToList() : FeatureAccess.Parse(user.AllowedFeatures);

@@ -23,6 +23,7 @@ public class JwtTokenService(IConfiguration configuration)
             new Claim(JwtRegisteredClaimNames.UniqueName, user.UserName),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.UserName),
+            new Claim("company_id", user.CompanyId.ToString()),
             new Claim("display_name", user.DisplayName),
             new Claim(ClaimTypes.Role, user.Role)
         };

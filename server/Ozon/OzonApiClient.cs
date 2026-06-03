@@ -9,14 +9,21 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
 {
     private readonly OzonOptions _options = options.Value;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private string? _clientIdOverride;
+    private string? _apiKeyOverride;
+
+    public void UseCredentials(string clientId, string apiKey)
+    {
+        _clientIdOverride = clientId;
+        _apiKeyOverride = apiKey;
+    }
 
     public async Task<OzonProductListResult> GetProductListAsync(int limit, CancellationToken cancellationToken)
     {
         EnsureConfigured();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/v3/product/list");
-        request.Headers.Add("Client-Id", _options.ClientId);
-        request.Headers.Add("Api-Key", _options.ApiKey);
+        AddAuthHeaders(request);
         request.Content = JsonContent.Create(new OzonProductListRequest(
             new OzonProductListFilter("ALL"),
             string.Empty,
@@ -44,8 +51,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         EnsureConfigured();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/v4/product/info/stocks");
-        request.Headers.Add("Client-Id", _options.ClientId);
-        request.Headers.Add("Api-Key", _options.ApiKey);
+        AddAuthHeaders(request);
         request.Content = JsonContent.Create(new OzonStockListRequest(
             new OzonProductListFilter("ALL"),
             string.Empty,
@@ -115,8 +121,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         EnsureConfigured();
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/v1/product/import/prices");
-        httpRequest.Headers.Add("Client-Id", _options.ClientId);
-        httpRequest.Headers.Add("Api-Key", _options.ApiKey);
+        AddAuthHeaders(httpRequest);
         httpRequest.Content = JsonContent.Create(new OzonImportPricesRequest([
             new OzonImportPriceItem(
                 request.ProductId,
@@ -216,7 +221,113 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             postings.Count(posting => posting.Status == "awaiting_deliver"),
             postings.Count(posting => posting.Status == "delivering"),
             postings.Count(posting => posting.Status == "delivered"),
+            await GetAccountBalanceAsync(dateFrom, dateTo, cancellationToken),
             DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    public async Task<IReadOnlyList<OzonSupplyOrderSummary>> GetSupplyOrdersAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+
+        var content = await SendSupplyOrderListRequestAsync("/v1/supply-order/list", dateFrom, dateTo, cancellationToken);
+
+        var data = JsonSerializer.Deserialize<JsonElement>(content, JsonOptions);
+        var orders = TryGetArray(data, "supply_orders")
+            ?? TryGetArray(data, "result", "supply_orders")
+            ?? TryGetArray(data, "result", "orders")
+            ?? TryGetArray(data, "orders")
+            ?? TryGetArray(data, "result")
+            ?? [];
+
+        return orders.Select(order => new OzonSupplyOrderSummary(
+            GetString(order, "supply_order_id", "supply_order_number", "id"),
+            GetString(order, "status"),
+            GetString(order, "warehouse_name", "warehouse", "delivery_method_name"),
+            GetString(order, "created_at", "createdAt", "created_date"),
+            GetString(order, "updated_at", "updatedAt", "updated_date"),
+            GetInt(order, "items_count", "itemsCount", "total_items_count", "total_quantity")))
+            .ToList();
+    }
+
+    private async Task<string> SendSupplyOrderListRequestAsync(
+        string path,
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path);
+        AddAuthHeaders(request);
+        request.Content = JsonContent.Create(new OzonSupplyOrderListRequest(
+            $"{dateFrom:yyyy-MM-dd}T00:00:00Z",
+            $"{dateTo:yyyy-MM-dd}T23:59:59Z",
+            new OzonSupplyOrderFilter([]),
+            100));
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (response.IsSuccessStatusCode)
+        {
+            return content;
+        }
+
+        if (path != "/v1/fbo/supply-order/list" && response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return await SendSupplyOrderListRequestAsync("/v1/fbo/supply-order/list", dateFrom, dateTo, cancellationToken);
+        }
+
+        throw new HttpRequestException(
+            $"Ozon API returned {(int)response.StatusCode}: {content}",
+            null,
+            response.StatusCode);
+    }
+
+    private async Task<OzonAccountBalance> GetAccountBalanceAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            EnsureConfigured();
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/finance/cash-flow-statement/list");
+            AddAuthHeaders(request);
+            request.Content = JsonContent.Create(new OzonCashFlowStatementRequest(
+                new OzonFinanceDateRange(
+                    $"{dateFrom:yyyy-MM-dd}T00:00:00.000Z",
+                    $"{dateTo:yyyy-MM-dd}T23:59:59.000Z"),
+                1,
+                100));
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new OzonAccountBalance(0, string.Empty);
+            }
+
+            var data = JsonSerializer.Deserialize<JsonElement>(content, JsonOptions);
+            var flows = TryGetArray(data, "result", "cash_flows") ?? [];
+            var lastFlow = flows.LastOrDefault();
+            if (lastFlow.ValueKind == JsonValueKind.Undefined)
+            {
+                return new OzonAccountBalance(0, string.Empty);
+            }
+
+            var details = TryGetArray(lastFlow, "details") ?? [];
+            var lastDetail = details.LastOrDefault();
+            var source = lastDetail.ValueKind == JsonValueKind.Undefined ? lastFlow : lastDetail;
+            return new OzonAccountBalance(
+                GetDecimal(source, "end_balance_amount"),
+                GetString(lastFlow, "currency_code"));
+        }
+        catch
+        {
+            return new OzonAccountBalance(0, string.Empty);
+        }
     }
 
     private async Task<OzonFinanceTransactionResult> GetFinanceTransactionsAsync(
@@ -227,8 +338,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         EnsureConfigured();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/v3/finance/transaction/list");
-        request.Headers.Add("Client-Id", _options.ClientId);
-        request.Headers.Add("Api-Key", _options.ApiKey);
+        AddAuthHeaders(request);
         request.Content = JsonContent.Create(new OzonFinanceTransactionRequest(
             new OzonFinanceFilter(
                 new OzonFinanceDateRange(
@@ -300,8 +410,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         EnsureConfigured();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, path);
-        request.Headers.Add("Client-Id", _options.ClientId);
-        request.Headers.Add("Api-Key", _options.ApiKey);
+        AddAuthHeaders(request);
         request.Content = JsonContent.Create(new OzonPostingListRequest(
             "ASC",
             new OzonPostingFilter(
@@ -333,8 +442,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         EnsureConfigured();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/v3/product/info/list");
-        request.Headers.Add("Client-Id", _options.ClientId);
-        request.Headers.Add("Api-Key", _options.ApiKey);
+        AddAuthHeaders(request);
         request.Content = JsonContent.Create(new OzonProductInfoListRequest(productIds));
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
@@ -371,10 +479,20 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
 
     private void EnsureConfigured()
     {
-        if (string.IsNullOrWhiteSpace(_options.ClientId) || string.IsNullOrWhiteSpace(_options.ApiKey))
+        if (string.IsNullOrWhiteSpace(ClientId) || string.IsNullOrWhiteSpace(ApiKey))
         {
             throw new InvalidOperationException("Ozon API credentials are not configured.");
         }
+    }
+
+    private string ClientId => string.IsNullOrWhiteSpace(_clientIdOverride) ? _options.ClientId : _clientIdOverride;
+
+    private string ApiKey => string.IsNullOrWhiteSpace(_apiKeyOverride) ? _options.ApiKey : _apiKeyOverride;
+
+    private void AddAuthHeaders(HttpRequestMessage request)
+    {
+        request.Headers.Add("Client-Id", ClientId);
+        request.Headers.Add("Api-Key", ApiKey);
     }
 
     private static string GetOptionalOzonPrice(decimal? value, decimal price)
@@ -430,6 +548,79 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         }
 
         return string.Join(" ", messages.Distinct());
+    }
+
+    private static JsonElement.ArrayEnumerator? TryGetArray(JsonElement element, params string[] path)
+    {
+        var current = element;
+        foreach (var part in path)
+        {
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(part, out current))
+            {
+                return null;
+            }
+        }
+
+        return current.ValueKind == JsonValueKind.Array ? current.EnumerateArray() : null;
+    }
+
+    private static string GetString(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty(name, out var value))
+            {
+                return value.ValueKind switch
+                {
+                    JsonValueKind.String => value.GetString() ?? string.Empty,
+                    JsonValueKind.Number => value.ToString(),
+                    _ => string.Empty
+                };
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static int GetInt(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty(name, out var value)
+                && value.ValueKind == JsonValueKind.Number
+                && value.TryGetInt32(out var result))
+            {
+                return result;
+            }
+        }
+
+        return 0;
+    }
+
+    private static decimal GetDecimal(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+            {
+                return number;
+            }
+
+            if (value.ValueKind == JsonValueKind.String
+                && decimal.TryParse(value.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var textNumber))
+            {
+                return textNumber;
+            }
+        }
+
+        return 0;
     }
 }
 
@@ -566,7 +757,10 @@ public record OzonAnalyticsResult(
     int AwaitingDeliverCount,
     int DeliveringCount,
     int DeliveredCount,
+    OzonAccountBalance AccountBalance,
     string Timestamp);
+
+public record OzonAccountBalance(decimal Amount, string CurrencyCode);
 
 public record OzonAnalyticsRow(
     long Sku,
@@ -656,6 +850,28 @@ public record OzonFinanceFilter(
 public record OzonFinanceDateRange(
     [property: JsonPropertyName("from")] string From,
     [property: JsonPropertyName("to")] string To);
+
+public record OzonCashFlowStatementRequest(
+    [property: JsonPropertyName("date")] OzonFinanceDateRange Date,
+    [property: JsonPropertyName("page")] int Page,
+    [property: JsonPropertyName("page_size")] int PageSize);
+
+public record OzonSupplyOrderListRequest(
+    [property: JsonPropertyName("since")] string Since,
+    [property: JsonPropertyName("to")] string To,
+    [property: JsonPropertyName("filter")] OzonSupplyOrderFilter Filter,
+    [property: JsonPropertyName("limit")] int Limit);
+
+public record OzonSupplyOrderFilter(
+    [property: JsonPropertyName("status")] IReadOnlyList<string> Status);
+
+public record OzonSupplyOrderSummary(
+    string Id,
+    string Status,
+    string WarehouseName,
+    string CreatedAt,
+    string UpdatedAt,
+    int ItemsCount);
 
 public record OzonFinanceTransactionResponse(
     [property: JsonPropertyName("result")] OzonFinanceTransactionResult Result);

@@ -3,6 +3,7 @@ using System;
 using LShopOzonWebReact.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LShopOzonWebReact.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260602211640_CompanyTenancyAndOzonIntegration")]
+    partial class CompanyTenancyAndOzonIntegration
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -193,11 +196,6 @@ namespace LShopOzonWebReact.Api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("LastYooKassaPaymentId")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
                     b.Property<string>("LoginName")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -226,53 +224,12 @@ namespace LShopOzonWebReact.Api.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
-                    b.Property<DateTimeOffset>("TrialEndsAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("YooKassaPaymentMethodIdProtected")
-                        .IsRequired()
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("LoginName")
                         .IsUnique();
 
                     b.ToTable("Companies");
-                });
-
-            modelBuilder.Entity("LShopOzonWebReact.Api.Models.ProductSupplierLink", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("OfferId")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<long>("OzonProductId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("SupplierUrl")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId", "OzonProductId")
-                        .IsUnique();
-
-                    b.ToTable("ProductSupplierLinks");
                 });
 
             modelBuilder.Entity("LShopOzonWebReact.Api.Models.ProductionFile", b =>
@@ -522,17 +479,6 @@ namespace LShopOzonWebReact.Api.Migrations
                     b.Navigation("Receiver");
 
                     b.Navigation("Sender");
-                });
-
-            modelBuilder.Entity("LShopOzonWebReact.Api.Models.ProductSupplierLink", b =>
-                {
-                    b.HasOne("LShopOzonWebReact.Api.Models.Company", "Company")
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Company");
                 });
 
             modelBuilder.Entity("LShopOzonWebReact.Api.Models.ProductionTaskItem", b =>

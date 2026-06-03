@@ -26,6 +26,7 @@ services:
       - "${APP_PORT:-8080}:8080"
     volumes:
       - ./backups:/app/backups:ro
+      - ./data-protection-keys:/app/data-protection-keys
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
@@ -38,6 +39,11 @@ services:
       Ozon__BaseUrl: ${OZON_BASE_URL}
       Ozon__ClientId: ${OZON_CLIENT_ID}
       Ozon__ApiKey: ${OZON_API_KEY}
+      YooKassa__ShopId: ${YOOKASSA_SHOP_ID}
+      YooKassa__SecretKey: ${YOOKASSA_SECRET_KEY}
+      YooKassa__ReturnUrl: ${YOOKASSA_RETURN_URL}
+      YooKassa__MonthlyAmount: ${YOOKASSA_MONTHLY_AMOUNT:-4900}
+      YooKassa__Currency: ${YOOKASSA_CURRENCY:-RUB}
 
   adminer:
     image: adminer:latest

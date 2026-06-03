@@ -5,8 +5,10 @@ namespace LShopOzonWebReact.Api.Data;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
+    public DbSet<Company> Companies => Set<Company>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<ProductionFile> ProductionFiles => Set<ProductionFile>();
+    public DbSet<ProductSupplierLink> ProductSupplierLinks => Set<ProductSupplierLink>();
     public DbSet<ProductionTask> ProductionTasks => Set<ProductionTask>();
     public DbSet<ProductionTaskItem> ProductionTaskItems => Set<ProductionTaskItem>();
     public DbSet<Supply> Supplies => Set<Supply>();
@@ -16,15 +18,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Company>(entity =>
+        {
+            entity.HasIndex(company => company.LoginName).IsUnique();
+            entity.Property(company => company.Name).HasMaxLength(180);
+            entity.Property(company => company.LoginName).HasMaxLength(120);
+            entity.Property(company => company.OzonClientIdProtected).HasMaxLength(2000);
+            entity.Property(company => company.OzonApiKeyProtected).HasMaxLength(4000);
+            entity.Property(company => company.SubscriptionStatus).HasMaxLength(32);
+            entity.Property(company => company.YooKassaPaymentMethodIdProtected).HasMaxLength(4000);
+            entity.Property(company => company.LastYooKassaPaymentId).HasMaxLength(120);
+        });
+
         modelBuilder.Entity<AppUser>(entity =>
         {
-            entity.HasIndex(user => user.UserName).IsUnique();
+            entity.HasIndex(user => new { user.CompanyId, user.UserName }).IsUnique();
             entity.Property(user => user.UserName).HasMaxLength(80);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
             entity.Property(user => user.Position).HasMaxLength(160);
             entity.Property(user => user.AvatarFileName).HasMaxLength(260);
             entity.Property(user => user.AllowedFeatures).HasMaxLength(2000);
             entity.Property(user => user.Role).HasMaxLength(32);
+            entity.HasOne(user => user.Company)
+                .WithMany()
+                .HasForeignKey(user => user.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ProductionFile>(entity =>
@@ -34,6 +52,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(file => file.ProductName).HasMaxLength(240);
             entity.Property(file => file.FileName).HasMaxLength(260);
             entity.Property(file => file.ContentType).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<ProductSupplierLink>(entity =>
+        {
+            entity.HasIndex(link => new { link.CompanyId, link.OzonProductId }).IsUnique();
+            entity.Property(link => link.OfferId).HasMaxLength(120);
+            entity.Property(link => link.SupplierUrl).HasMaxLength(1000);
+            entity.HasOne(link => link.Company)
+                .WithMany()
+                .HasForeignKey(link => link.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ProductionTask>(entity =>

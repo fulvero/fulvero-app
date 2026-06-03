@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import * as signalR from '@microsoft/signalr'
+import fulveroLogo from './assets/fulvero-logo.png'
 import './App.css'
 
 type User = {
   id: string
+  companyId: string
+  companyName: string
   userName: string
   displayName: string
   position: string
   role: string
   avatarUrl: string
   allowedFeatures: string[]
+  subscriptionStatus: string
+  trialEndsAt: string
+  subscriptionPaidUntil?: string
+  hasActiveSubscription: boolean
   isOnline?: boolean
   lastSeenAt?: string
   unreadCount?: number
@@ -55,12 +62,6 @@ type OzonIntegrationStatus = {
   clientIdMasked: string
   apiKeyMasked: string
   checkedAt: string
-}
-
-type BackupFile = {
-  fileName: string
-  sizeBytes: number
-  createdAt: string
 }
 
 type OzonProduct = {
@@ -124,7 +125,26 @@ type OzonAnalytics = {
   awaitingDeliverCount: number
   deliveringCount: number
   deliveredCount: number
+  accountBalance: {
+    amount: number
+    currencyCode: string
+  }
   timestamp: string
+}
+
+type OzonSupplyOrder = {
+  id: string
+  status: string
+  warehouseName: string
+  createdAt: string
+  updatedAt: string
+  itemsCount: number
+}
+
+type ProductSupplierLink = {
+  ozonProductId: number
+  offerId: string
+  supplierUrl: string
 }
 
 type ProductionFile = {
@@ -236,8 +256,9 @@ const tabs = [
   { id: 'production', label: 'Производство' },
   { id: 'products', label: 'Товары' },
   { id: 'analytics', label: 'Аналитика' },
-  { id: 'pooling', label: 'Складчина' },
-  { id: 'supplies', label: 'Поставки' },
+  { id: 'pooling', label: 'Склад' },
+  { id: 'supplies', label: 'Поставки OZON' },
+  { id: 'integration', label: 'Интеграция', adminOnly: true },
   { id: 'chats', label: 'Чаты' },
   { id: 'users', label: 'Пользователи', adminOnly: true },
   { id: 'settings', label: 'Настройки', adminOnly: true },
@@ -258,7 +279,7 @@ const featureGroups = [
     ],
   },
   {
-    title: 'Поставки',
+    title: 'Поставки OZON',
     items: [
       { id: 'supplies', label: 'Раздел' },
       { id: 'supplies.create', label: 'Создать поставку' },
@@ -266,6 +287,7 @@ const featureGroups = [
       { id: 'supplies.all', label: 'Все поставки' },
       { id: 'supplies.archive', label: 'Архив поставок' },
       { id: 'supplies.analytics', label: 'Аналитика поставок' },
+      { id: 'supplies.ozon', label: 'Поставки Ozon API' },
     ],
   },
   {
@@ -275,17 +297,17 @@ const featureGroups = [
       { id: 'analytics', label: 'Аналитика' },
       { id: 'analytics.summary', label: 'Сводка аналитики' },
       { id: 'analytics.topProducts', label: 'Топ товары' },
-      { id: 'pooling', label: 'Складчина' },
+      { id: 'pooling', label: 'Склад' },
       { id: 'pooling.editPrices', label: 'Редактирование цен' },
       { id: 'chats', label: 'Чаты' },
     ],
   },
 ]
-const defaultUserFeatures = ['production', 'production.products', 'production.tasks', 'production.inProgress', 'production.deferred', 'production.completed', 'products', 'supplies', 'supplies.create', 'supplies.all', 'chats']
+const defaultUserFeatures = ['production', 'production.products', 'production.tasks', 'production.inProgress', 'production.deferred', 'production.completed', 'products', 'supplies', 'supplies.create', 'supplies.ozon', 'supplies.all', 'chats']
 
 type TabId = (typeof tabs)[number]['id']
 type ProductionSubTab = 'products' | 'tasks' | 'inProgress' | 'deferred' | 'completed' | 'archive'
-type SupplySubTab = 'create' | 'editor' | 'all' | 'archive' | 'analytics'
+type SupplySubTab = 'create' | 'editor' | 'ozon' | 'all' | 'archive' | 'analytics'
 type AnalyticsSubTab = 'summary' | 'topProducts'
 
 function App() {
@@ -299,24 +321,30 @@ function App() {
   const [auditSearch, setAuditSearch] = useState('')
   const [auditStatus, setAuditStatus] = useState('')
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
-  const [systemHealthStatus, setSystemHealthStatus] = useState('')
   const [ozonIntegration, setOzonIntegration] = useState<OzonIntegrationStatus | null>(null)
   const [ozonIntegrationStatus, setOzonIntegrationStatus] = useState('')
-  const [backupFiles, setBackupFiles] = useState<BackupFile[]>([])
-  const [backupStatus, setBackupStatus] = useState('')
+  const [ozonClientId, setOzonClientId] = useState('')
+  const [ozonApiKey, setOzonApiKey] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('production')
   const [isLoading, setIsLoading] = useState(true)
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [loginError, setLoginError] = useState('')
+  const [billingStatus, setBillingStatus] = useState('')
   const [ozonStatus, setOzonStatus] = useState('')
   const [ozonProducts, setOzonProducts] = useState<OzonProduct[]>([])
   const [stockStatus, setStockStatus] = useState('')
   const [ozonStocks, setOzonStocks] = useState<OzonStock[]>([])
   const [stockSearch, setStockSearch] = useState('')
-  const [stockSortDirection, setStockSortDirection] = useState<'desc' | 'asc'>('desc')
+  const [stockSortKey, setStockSortKey] = useState<'fbo' | 'fbs'>('fbo')
+  const [urgentStockOnly, setUrgentStockOnly] = useState(false)
+  const [urgentStockStatus, setUrgentStockStatus] = useState('')
+  const [showUrgentStockModal, setShowUrgentStockModal] = useState(false)
+  const [urgentStockResults, setUrgentStockResults] = useState<UrgentStockItem[]>([])
   const [priceStatus, setPriceStatus] = useState('')
   const [editingPrices, setEditingPrices] = useState<Record<number, string>>({})
   const [analyticsStatus, setAnalyticsStatus] = useState('')
   const [analytics, setAnalytics] = useState<OzonAnalytics | null>(null)
+  const [productSupplierLinks, setProductSupplierLinks] = useState<Record<number, string>>({})
   const [analyticsSubTab, setAnalyticsSubTab] = useState<AnalyticsSubTab>('summary')
   const [productionSearch, setProductionSearch] = useState('')
   const [productionSubTab, setProductionSubTab] = useState<ProductionSubTab>('products')
@@ -338,6 +366,8 @@ function App() {
   const [supplyStatusFilter, setSupplyStatusFilter] = useState<'all' | SupplyStatus>('all')
   const [supplyAnalytics, setSupplyAnalytics] = useState<SupplyAnalyticsItem[]>([])
   const [supplyStatus, setSupplyStatus] = useState('')
+  const [ozonSupplyOrders, setOzonSupplyOrders] = useState<OzonSupplyOrder[]>([])
+  const [ozonSupplyStatus, setOzonSupplyStatus] = useState('')
   const [supplyProductId, setSupplyProductId] = useState('')
   const [supplyQuantity, setSupplyQuantity] = useState('')
   const [reserveProductName, setReserveProductName] = useState('')
@@ -441,17 +471,23 @@ function App() {
           .some((value) => String(value).toLowerCase().includes(normalizedStockSearch)),
       )
     : ozonStocks
-  const sortedOzonStocks = [...filteredOzonStocks].sort((left, right) => {
-    const leftTotal = left.fboPresent + left.fbsPresent
-    const rightTotal = right.fboPresent + right.fbsPresent
-    return stockSortDirection === 'desc' ? rightTotal - leftTotal : leftTotal - rightTotal
-  })
   const topAnalyticsProducts = (analytics?.topProducts ?? [])
     .map((row) => ({
       ...row,
       key: row.sku ? `sku:${row.sku}` : `offer:${row.offerId}`,
     }))
     .sort((left, right) => right.quantity - left.quantity)
+  const urgentStockItems = getUrgentStockItems(ozonStocks, analytics)
+  const visibleOzonStocks = urgentStockOnly
+    ? filteredOzonStocks.filter((stock) =>
+        urgentStockItems.some((urgentItem) => urgentItem.productId === stock.productId),
+      )
+    : filteredOzonStocks
+  const sortedOzonStocks = [...visibleOzonStocks].sort((left, right) => {
+    const leftValue = getStockSortValue(left, stockSortKey)
+    const rightValue = getStockSortValue(right, stockSortKey)
+    return leftValue - rightValue
+  })
   const selectedChatUser = chatUsers.find((item) => item.id === selectedChatUserId)
   const chatUnreadTotal = chatUsers.reduce((sum, item) => sum + (item.unreadCount ?? 0), 0)
   const unseenNewProductionTasks = allNewProductionTasks.filter(
@@ -541,6 +577,7 @@ function App() {
       ['all', 'supplies.all'],
       ['archive', 'supplies.archive'],
       ['analytics', 'supplies.analytics'],
+      ['ozon', 'supplies.ozon'],
     ]
     if (activeTab === 'supplies' && !hasSubFeature(`supplies.${supplySubTab}`, 'supplies')) {
       setSupplySubTab(supplyFallbacks.find(([, feature]) => hasSubFeature(feature, 'supplies'))?.[0] ?? 'create')
@@ -564,12 +601,10 @@ function App() {
     loadAuditLogs()
     loadSystemHealth()
     loadOzonIntegrationStatus()
-    loadBackups()
     const intervalId = window.setInterval(() => {
       loadUsers()
       loadAuditLogs()
       loadSystemHealth()
-      loadBackups()
     }, 30000)
     return () => window.clearInterval(intervalId)
   }, [token, user?.role])
@@ -662,10 +697,27 @@ function App() {
     }
 
     loadOzonProducts()
+    loadProductSupplierLinks()
     if (hasFeature('analytics')) {
       loadAnalytics()
     }
   }, [token, user?.role, user?.allowedFeatures])
+
+  useEffect(() => {
+    if (!token || activeTab !== 'pooling' || !hasFeature('pooling')) {
+      return
+    }
+
+    loadOzonStocks()
+  }, [token, activeTab])
+
+  useEffect(() => {
+    if (!token || activeTab !== 'supplies' || supplySubTab !== 'ozon') {
+      return
+    }
+
+    loadOzonSupplyOrders()
+  }, [token, activeTab, supplySubTab])
 
   useEffect(() => {
     if (!token) {
@@ -698,13 +750,14 @@ function App() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        companyName: formData.get('companyName'),
         userName: formData.get('userName'),
         password: formData.get('password'),
       }),
     })
 
     if (!response.ok) {
-      setLoginError('Неверный логин или пароль')
+      setLoginError('Неверная компания, логин или пароль')
       return
     }
 
@@ -713,6 +766,59 @@ function App() {
     localStorage.setItem('authUser', JSON.stringify(data.user))
     setToken(data.token)
     setUser(data.user)
+  }
+
+  async function handleRegister(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLoginError('')
+
+    const formData = new FormData(event.currentTarget)
+    const response = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        companyName: formData.get('companyName'),
+        userName: formData.get('userName'),
+        displayName: formData.get('displayName'),
+        password: formData.get('password'),
+      }),
+    })
+
+    if (!response.ok) {
+      setLoginError(getApiErrorMessage(await response.text(), 'Не удалось зарегистрировать компанию'))
+      return
+    }
+
+    const data = await response.json()
+    localStorage.setItem('authToken', data.token)
+    localStorage.setItem('authUser', JSON.stringify(data.user))
+    setToken(data.token)
+    setUser(data.user)
+  }
+
+  async function startSubscriptionCheckout() {
+    setBillingStatus('Готовим оплату подписки через ЮKassa...')
+    const response = await fetch('/api/billing/checkout', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      setBillingStatus(getApiErrorMessage(await response.text(), 'Не удалось создать платеж ЮKassa'))
+      return
+    }
+
+    const data: { confirmationUrl: string } = await response.json()
+    if (!data.confirmationUrl) {
+      setBillingStatus('ЮKassa не вернула ссылку на оплату')
+      return
+    }
+
+    window.location.href = data.confirmationUrl
   }
 
   function logout() {
@@ -856,18 +962,16 @@ function App() {
     })
 
     if (!response.ok) {
-      setSystemHealthStatus('Не удалось получить статус системы')
       return
     }
 
     const data: SystemHealth = await response.json()
     setSystemHealth(data)
-    setSystemHealthStatus(data.databaseOk ? 'Система работает' : 'База данных недоступна')
   }
 
   async function loadOzonIntegrationStatus() {
     setOzonIntegrationStatus('Проверяем Ozon API...')
-    const response = await fetch('/api/admin/ozon-status', {
+    const response = await fetch('/api/integrations/ozon', {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -883,42 +987,32 @@ function App() {
     setOzonIntegrationStatus(data.message)
   }
 
-  async function loadBackups() {
-    const response = await fetch('/api/admin/backups', {
+  async function saveOzonIntegration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setOzonIntegrationStatus('Сохраняем Ozon ID и ключ...')
+
+    const response = await fetch('/api/integrations/ozon', {
+      method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        clientId: ozonClientId,
+        apiKey: ozonApiKey,
+      }),
     })
 
     if (!response.ok) {
-      setBackupStatus('Не удалось получить список бэкапов')
+      setOzonIntegrationStatus(getApiErrorMessage(await response.text(), 'Не удалось сохранить Ozon-интеграцию'))
       return
     }
 
-    const data: BackupFile[] = await response.json()
-    setBackupFiles(data)
-    setBackupStatus(data.length ? `Бэкапов: ${data.length}` : 'Бэкапов пока нет')
-  }
-
-  async function downloadBackup(fileName: string) {
-    const response = await fetch(`/api/admin/backups/${encodeURIComponent(fileName)}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-
-    if (!response.ok) {
-      setBackupStatus('Не удалось скачать бэкап')
-      return
-    }
-
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = fileName
-    link.click()
-    URL.revokeObjectURL(url)
+    const data: OzonIntegrationStatus = await response.json()
+    setOzonIntegration(data)
+    setOzonIntegrationStatus(data.message)
+    setOzonClientId('')
+    setOzonApiKey('')
   }
 
   async function exportTaskArchive() {
@@ -1287,6 +1381,57 @@ function App() {
     setOzonStatus(`Загружено товаров Ozon: ${data.length}`)
   }
 
+  async function loadProductSupplierLinks() {
+    const response = await fetch('/api/product-supplier-links', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      return
+    }
+
+    const data: ProductSupplierLink[] = await response.json()
+    setProductSupplierLinks(
+      data.reduce<Record<number, string>>((acc, item) => {
+        acc[item.ozonProductId] = item.supplierUrl
+        return acc
+      }, {}),
+    )
+  }
+
+  async function saveSupplierLink(product: OzonProduct) {
+    const currentValue = productSupplierLinks[product.productId] ?? ''
+    const supplierUrl = window.prompt(`Ссылка на поставщика для ${product.offerId}`, currentValue)
+    if (supplierUrl === null) {
+      return
+    }
+
+    const response = await fetch(`/api/product-supplier-links/${product.productId}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        offerId: product.offerId,
+        supplierUrl,
+      }),
+    })
+
+    if (!response.ok) {
+      setOzonStatus(getApiErrorMessage(await response.text(), 'Не удалось сохранить ссылку поставщика'))
+      return
+    }
+
+    setProductSupplierLinks((current) => ({
+      ...current,
+      [product.productId]: supplierUrl.trim(),
+    }))
+    setOzonStatus('Ссылка поставщика сохранена')
+  }
+
   async function loadOzonStocks() {
     setStockStatus('Загружаем остатки со склада Ozon...')
 
@@ -1371,6 +1516,99 @@ function App() {
     const data: OzonAnalytics = await response.json()
     setAnalytics(data)
     setAnalyticsStatus(`Аналитика обновлена: ${data.timestamp}`)
+  }
+
+  async function checkUrgentStocks() {
+    setUrgentStockStatus('Анализируем остатки и продажи Ozon...')
+    setStockStatus('Загружаем свежие остатки и продажи для срочного пополнения...')
+
+    const [stocksResponse, analyticsResponse] = await Promise.all([
+      fetch('/api/ozon/stocks', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }),
+      fetch('/api/ozon/analytics', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }),
+    ])
+
+    if (!stocksResponse.ok) {
+      const message = getApiErrorMessage(await stocksResponse.text(), 'Не удалось получить остатки Ozon')
+      setStockStatus(message)
+      setUrgentStockStatus(message)
+      return
+    }
+
+    if (!analyticsResponse.ok) {
+      const message = getApiErrorMessage(await analyticsResponse.text(), 'Не удалось получить продажи Ozon')
+      setStockStatus(message)
+      setUrgentStockStatus(message)
+      return
+    }
+
+    const stocksData: OzonStock[] = await stocksResponse.json()
+    const analyticsData: OzonAnalytics = await analyticsResponse.json()
+    const urgentItems = getUrgentStockItems(stocksData, analyticsData)
+
+    setOzonStocks(stocksData)
+    setAnalytics(analyticsData)
+    setEditingPrices(
+      stocksData.reduce<Record<number, string>>((acc, item) => {
+        acc[item.productId] = String(item.price)
+        return acc
+      }, {}),
+    )
+    setUrgentStockOnly(urgentItems.length > 0)
+    setUrgentStockResults(urgentItems)
+    setShowUrgentStockModal(true)
+    setUrgentStockStatus(
+      urgentItems.length > 0
+        ? `Срочно пополнить: ${urgentItems.length}. Эти товары закончатся за 5 дней или раньше.`
+        : 'Всех товаров хватает: позиций, которые закончатся за 5 дней, нет.',
+    )
+    setStockStatus(
+      urgentItems.length > 0
+        ? `Найдено срочных товаров: ${urgentItems.length}`
+        : 'Всех товаров хватает',
+    )
+  }
+
+  async function createSupplyFromUrgentStocks() {
+    if (urgentStockResults.length === 0) {
+      return
+    }
+
+    setSupplyStatus('Создаем поставку из срочных товаров...')
+    const response = await fetch('/api/supplies', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        items: urgentStockResults.map((item) => ({
+          ozonProductId: item.productId,
+          offerId: item.offerId,
+          productName: item.name,
+          quantity: getUrgentSupplyQuantity(item),
+          isReserve: false,
+        })),
+      }),
+    })
+
+    if (!response.ok) {
+      setSupplyStatus(getApiErrorMessage(await response.text(), 'Не удалось создать поставку из срочных товаров'))
+      return
+    }
+
+    await loadSupplies()
+    setShowUrgentStockModal(false)
+    setActiveTab('supplies')
+    setSupplySubTab('create')
+    setSupplyStatus('Поставка из срочных товаров создана')
   }
 
   async function loadProductionFiles(search: string) {
@@ -1747,6 +1985,24 @@ function App() {
     setSupplyAnalytics(data)
   }
 
+  async function loadOzonSupplyOrders() {
+    setOzonSupplyStatus('Загружаем поставки со склада Ozon...')
+    const response = await fetch('/api/ozon/supply-orders', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      setOzonSupplyStatus(getApiErrorMessage(await response.text(), 'Не удалось получить поставки Ozon'))
+      return
+    }
+
+    const data: OzonSupplyOrder[] = await response.json()
+    setOzonSupplyOrders(data)
+    setOzonSupplyStatus(data.length ? `Поставок Ozon: ${data.length}` : 'Активных поставок Ozon не найдено')
+  }
+
   function addSupplyProduct() {
     const product = ozonProducts.find((item) => String(item.productId) === supplyProductId)
     const quantity = Number(supplyQuantity)
@@ -2095,9 +2351,35 @@ function App() {
   if (!token) {
     return (
       <main className="login-page">
-        <form className="login-form" onSubmit={handleLogin}>
-          <p className="eyebrow">LShop Ozon</p>
-          <h1>Вход в панель</h1>
+        <form className="login-form" onSubmit={authMode === 'login' ? handleLogin : handleRegister}>
+          <img className="login-logo" src={fulveroLogo} alt="Fulvero" />
+          <h1>{authMode === 'login' ? 'Вход в панель' : 'Регистрация компании'}</h1>
+          <div className="auth-switch">
+            <button
+              type="button"
+              className={authMode === 'login' ? 'active' : ''}
+              onClick={() => setAuthMode('login')}
+            >
+              Вход
+            </button>
+            <button
+              type="button"
+              className={authMode === 'register' ? 'active' : ''}
+              onClick={() => setAuthMode('register')}
+            >
+              Регистрация
+            </button>
+          </div>
+          <label>
+            Компания
+            <input name="companyName" autoComplete="organization" required />
+          </label>
+          {authMode === 'register' && (
+            <label>
+              Имя первого сотрудника
+              <input name="displayName" autoComplete="name" required />
+            </label>
+          )}
           <label>
             Логин
             <input name="userName" autoComplete="username" required />
@@ -2107,8 +2389,35 @@ function App() {
             <input name="password" type="password" autoComplete="current-password" required />
           </label>
           {loginError && <p className="error">{loginError}</p>}
-          <button type="submit">Войти</button>
+          <button type="submit">
+            {authMode === 'login' ? 'Войти' : 'Создать компанию и админа'}
+          </button>
+          {authMode === 'register' && (
+            <p className="trial-note">Демо-доступ включится на 3 дня. Первый сотрудник сразу станет администратором.</p>
+          )}
         </form>
+      </main>
+    )
+  }
+
+  if (user && !user.hasActiveSubscription) {
+    return (
+      <main className="login-page">
+        <section className="login-form subscription-gate">
+          <img className="login-logo" src={fulveroLogo} alt="Fulvero" />
+          <h1>Нужна подписка</h1>
+          <p>
+            Демо-доступ компании <strong>{user.companyName}</strong> закончился. Чтобы продолжить работу,
+            оплатите ежемесячную подписку через ЮKassa.
+          </p>
+          <button type="button" onClick={startSubscriptionCheckout}>
+            Оплатить подписку
+          </button>
+          <button type="button" className="secondary-action" onClick={logout}>
+            Выйти
+          </button>
+          {billingStatus && <p className="trial-note">{billingStatus}</p>}
+        </section>
       </main>
     )
   }
@@ -2117,8 +2426,8 @@ function App() {
     <main className="app-layout">
       <header className="app-header">
         <div className="brand">
-          <span>LShop Ozon</span>
-          <strong>Панель магазина</strong>
+          <img src={fulveroLogo} alt="Fulvero" />
+          <span className="company-name">{user?.companyName || 'Компания'}</span>
         </div>
 
         <nav className="main-tabs" aria-label="Основные разделы">
@@ -2145,6 +2454,7 @@ function App() {
             <button
               type="button"
               className="notification-button"
+              aria-label="Уведомления"
               onClick={() => {
                 if (showNotifications) {
                   markVisibleNotificationsSeen()
@@ -2152,8 +2462,11 @@ function App() {
                 setShowNotifications((current) => !current)
               }}
             >
-              Уведомления
-              {notificationTotal > 0 && <span className="tab-badge">{notificationTotal}</span>}
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+                <path d="M10 21h4" />
+              </svg>
+              {notificationTotal > 0 && <span className="notification-badge">{notificationTotal}</span>}
             </button>
             {showNotifications && (
               <div className="notification-panel">
@@ -2185,13 +2498,13 @@ function App() {
               </div>
             )}
           </div>
-          <span>
-            <small>В системе</small>
+          <span className="session-user">
             <strong>{user?.displayName || user?.userName}</strong>
             {user?.position && <small>{user.position}</small>}
           </span>
           <button type="button" className="profile-button" onClick={() => setShowProfileModal(true)}>
             {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : 'Профиль'}
+            <span className="presence-dot is-online" aria-hidden="true" />
           </button>
           <button type="button" className="logout-button" onClick={confirmLogout}>
             Выйти
@@ -2238,6 +2551,42 @@ function App() {
               </span>
             </form>
             {profileStatus && <p className="modal-status">{profileStatus}</p>}
+          </div>
+        </div>
+      )}
+
+      {showUrgentStockModal && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card urgent-modal" role="dialog" aria-modal="true">
+            <div className="modal-title-row">
+              <h3>Срочное пополнение склада</h3>
+              <button type="button" onClick={() => setShowUrgentStockModal(false)}>
+                Закрыть
+              </button>
+            </div>
+            {urgentStockResults.length > 0 ? (
+              <div className="urgent-stock-list">
+                {urgentStockResults.map((item) => (
+                  <article key={item.productId}>
+                    <strong>{item.name}</strong>
+                    <span>{item.offerId}</span>
+                    <small>
+                      Остаток FBO+FBS: {item.fboPresent + item.fbsPresent}. Хватит на{' '}
+                      {formatDaysLeft(item.daysLeft)} при продажах {item.dailySales.toFixed(2)}/день.
+                      В поставку: {getUrgentSupplyQuantity(item)} шт.
+                    </small>
+                  </article>
+                ))}
+                <button type="button" className="danger-action" onClick={createSupplyFromUrgentStocks}>
+                  В поставку
+                </button>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <strong>Все хорошо, всего хватает.</strong>
+                <p>Товаров, которые закончатся за 5 дней или раньше, нет.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2455,6 +2804,7 @@ function App() {
                           <ProductSearchInput
                             listId="task-products"
                             products={ozonProducts}
+                            supplierLinks={productSupplierLinks}
                             selectedProductId={selectedTaskProductId}
                             onProductIdChange={setSelectedTaskProductId}
                             placeholder="Начните писать название или артикул"
@@ -2608,7 +2958,8 @@ function App() {
                   <span>Артикул</span>
                   <span>Фото</span>
                   <span>Цена</span>
-                  <span>Ссылка</span>
+                  <span>Ссылка на Ozon</span>
+                  <span>Поставщик</span>
                 </div>
                 {ozonProducts.map((item) => (
                   <div className="table-row ozon-product-row" key={item.productId}>
@@ -2628,10 +2979,21 @@ function App() {
                     <span>
                       {item.productUrl ? (
                         <a href={item.productUrl} target="_blank" rel="noreferrer">
-                          Открыть
+                          Ссылка на Ozon
                         </a>
                       ) : (
                         item.status
+                      )}
+                    </span>
+                    <span>
+                      {productSupplierLinks[item.productId] ? (
+                        <a href={productSupplierLinks[item.productId]} target="_blank" rel="noreferrer">
+                          Ссылка поставщика
+                        </a>
+                      ) : (
+                        <button type="button" onClick={() => saveSupplierLink(item)}>
+                          Добавить ссылку
+                        </button>
                       )}
                     </span>
                   </div>
@@ -2672,6 +3034,17 @@ function App() {
               {analyticsSubTab === 'summary' && (
                 <>
                   <div className="analytics-grid">
+                    <div>
+                      <span>На счету Ozon</span>
+                      <strong>
+                        {analytics
+                          ? formatMoney(
+                              analytics.accountBalance?.amount ?? 0,
+                              analytics.accountBalance?.currencyCode || 'RUB',
+                            )
+                          : '-'}
+                      </strong>
+                    </div>
                     <div>
                       <span>Товары Ozon</span>
                       <strong>{ozonProducts.length || '-'}</strong>
@@ -2785,13 +3158,21 @@ function App() {
           {activeTab === 'pooling' && (
             <section className="tab-panel">
               <div className="section-title">
-                <h2>Складчина</h2>
-                <p>{priceStatus || stockStatus || 'Остатки товаров на складе Ozon'}</p>
+                <h2>Склад</h2>
+                <p>{urgentStockStatus || priceStatus || stockStatus || 'Остатки товаров на складе Ozon'}</p>
               </div>
               <div className="subtabs-placeholder">
                 <button type="button" onClick={loadOzonStocks}>
                   Обновить остатки Ozon
                 </button>
+                <button type="button" className="danger-action" onClick={checkUrgentStocks}>
+                  Срочно
+                </button>
+                {urgentStockOnly && (
+                  <button type="button" onClick={() => setUrgentStockOnly(false)}>
+                    Все товары
+                  </button>
+                )}
                 <input
                   className="toolbar-search"
                   placeholder="Поиск по товару, артикулу или цене"
@@ -2799,11 +3180,11 @@ function App() {
                   onChange={(event) => setStockSearch(event.target.value)}
                 />
                 <span className="sort-actions stock-sort-actions">
-                  <button type="button" onClick={() => setStockSortDirection('desc')}>
-                    По убыванию
+                  <button type="button" onClick={() => setStockSortKey('fbo')}>
+                    FBO по возрастанию
                   </button>
-                  <button type="button" onClick={() => setStockSortDirection('asc')}>
-                    По возрастанию
+                  <button type="button" onClick={() => setStockSortKey('fbs')}>
+                    FBS по возрастанию
                   </button>
                 </span>
               </div>
@@ -2820,6 +3201,7 @@ function App() {
                   <StockRow
                     item={item}
                     key={item.productId}
+                    urgentInfo={urgentStockItems.find((urgentItem) => urgentItem.productId === item.productId)}
                     priceValue={editingPrices[item.productId] ?? String(item.price)}
                     onPriceChange={(value) =>
                       setEditingPrices((current) => ({ ...current, [item.productId]: value }))
@@ -2828,6 +3210,15 @@ function App() {
                     canEditPrice={hasSubFeature('pooling.editPrices', 'pooling')}
                   />
                 ))}
+                {sortedOzonStocks.length === 0 && (
+                  <div className="empty-state">
+                    <strong>
+                      {urgentStockOnly
+                        ? 'Всех товаров хватает.'
+                        : 'Остатков по выбранному фильтру пока нет.'}
+                    </strong>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -2836,7 +3227,7 @@ function App() {
             <section className="tab-panel">
               <div className="section-title">
                 <div>
-                  <h2>Поставки</h2>
+                  <h2>Поставки OZON</h2>
                   <p>{supplyStatus || 'Создание, статусы и аналитика поставок'}</p>
                 </div>
                 {user?.role === 'Admin' && (
@@ -2876,7 +3267,7 @@ function App() {
                   onClick={() => setSupplySubTab('all')}
                   hidden={!hasSubFeature('supplies.all', 'supplies')}
                 >
-                  Все поставки
+                  Все внутренние
                 </button>
                 {user?.role === 'Admin' && (
                   <button
@@ -2885,9 +3276,17 @@ function App() {
                     onClick={() => setSupplySubTab('analytics')}
                     hidden={!hasSubFeature('supplies.analytics', 'supplies')}
                   >
-                    Аналитика поставок
-                  </button>
+                  Аналитика поставок
+                </button>
                 )}
+                <button
+                  type="button"
+                  className={supplySubTab === 'ozon' ? 'active' : ''}
+                  onClick={() => setSupplySubTab('ozon')}
+                  hidden={!hasSubFeature('supplies.ozon', 'supplies')}
+                >
+                  Поставки Ozon API
+                </button>
               </div>
 
               <div className="toolbar-row">
@@ -2912,6 +3311,40 @@ function App() {
                   </select>
                 )}
               </div>
+
+              {supplySubTab === 'ozon' && (
+                <>
+                  <div className="supply-filter">
+                    <p>{ozonSupplyStatus || 'Поставки на склад Ozon из API'}</p>
+                    <button type="button" onClick={loadOzonSupplyOrders}>
+                      Обновить из Ozon
+                    </button>
+                  </div>
+                  <div className="data-table">
+                    <div className="table-row ozon-supply-row table-head">
+                      <span>ID</span>
+                      <span>Статус</span>
+                      <span>Склад</span>
+                      <span>Товаров</span>
+                      <span>Создана</span>
+                    </div>
+                    {ozonSupplyOrders.map((order) => (
+                      <div className="table-row ozon-supply-row" key={order.id || `${order.createdAt}-${order.status}`}>
+                        <strong>{order.id || '-'}</strong>
+                        <span>{order.status || '-'}</span>
+                        <span>{order.warehouseName || '-'}</span>
+                        <span>{order.itemsCount || '-'}</span>
+                        <span>{order.createdAt ? formatDateTime(order.createdAt) : '-'}</span>
+                      </div>
+                    ))}
+                    {ozonSupplyOrders.length === 0 && (
+                      <div className="empty-state">
+                        <strong>Поставок Ozon пока нет.</strong>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
 
               {supplySubTab === 'create' && (
                 <>
@@ -2974,6 +3407,7 @@ function App() {
                             <ProductSearchInput
                               listId="supply-products"
                               products={ozonProducts}
+                              supplierLinks={productSupplierLinks}
                               selectedProductId={supplyProductId}
                               onProductIdChange={setSupplyProductId}
                               placeholder="Начните писать название или артикул"
@@ -3058,6 +3492,7 @@ function App() {
                   <SupplyTable
                     supplies={createdSupplies}
                     ozonProducts={ozonProducts}
+                    productSupplierLinks={productSupplierLinks}
                     replaceProducts={replaceProducts}
                     setReplaceProducts={setReplaceProducts}
                     editingSupplyId={editingSupplyId}
@@ -3089,6 +3524,7 @@ function App() {
                 <SupplyTable
                   supplies={editableSupplies}
                   ozonProducts={ozonProducts}
+                  productSupplierLinks={productSupplierLinks}
                   replaceProducts={replaceProducts}
                   setReplaceProducts={setReplaceProducts}
                   editingSupplyId={editingSupplyId}
@@ -3122,6 +3558,7 @@ function App() {
                 <SupplyTable
                   supplies={archivedSupplies}
                   ozonProducts={ozonProducts}
+                  productSupplierLinks={productSupplierLinks}
                   replaceProducts={replaceProducts}
                   setReplaceProducts={setReplaceProducts}
                   editingSupplyId={editingSupplyId}
@@ -3215,16 +3652,17 @@ function App() {
                       onClick={() => setSelectedChatUserId(item.id)}
                       key={item.id}
                     >
-                      <span className="chat-avatar">
+                      <span className="chat-avatar avatar-presence">
                         {item.avatarUrl ? <img src={item.avatarUrl} alt="" /> : <span>Фото</span>}
+                        <span
+                          className={`presence-dot ${item.isOnline ? 'is-online' : 'is-offline'}`}
+                          aria-label={item.isOnline ? 'В сети' : 'Не в сети'}
+                        />
                       </span>
                       <span>
                         <strong>{item.displayName || item.userName}</strong>
                         <small>{item.position || 'Должность не указана'}</small>
                       </span>
-                      <b className={item.isOnline ? 'online-dot' : 'offline-dot'}>
-                        {item.isOnline ? 'В сети' : 'Не в сети'}
-                      </b>
                       {(item.unreadCount ?? 0) > 0 && (
                         <span className="tab-badge">{item.unreadCount}</span>
                       )}
@@ -3241,19 +3679,20 @@ function App() {
                   {selectedChatUser ? (
                     <>
                       <div className="chat-window-head">
-                        <span className="chat-avatar">
+                        <span className="chat-avatar avatar-presence">
                           {selectedChatUser.avatarUrl ? (
                             <img src={selectedChatUser.avatarUrl} alt="" />
                           ) : (
                             <span>Фото</span>
                           )}
+                          <span
+                            className={`presence-dot ${selectedChatUser.isOnline ? 'is-online' : 'is-offline'}`}
+                            aria-label={selectedChatUser.isOnline ? 'В сети' : 'Не в сети'}
+                          />
                         </span>
                         <span>
                           <strong>{selectedChatUser.displayName || selectedChatUser.userName}</strong>
-                          <small>
-                            {selectedChatUser.position || 'Должность не указана'} |{' '}
-                            {selectedChatUser.isOnline ? 'В сети' : 'Не в сети'}
-                          </small>
+                          <small>{selectedChatUser.position || 'Должность не указана'}</small>
                         </span>
                       </div>
 
@@ -3336,6 +3775,72 @@ function App() {
             </section>
           )}
 
+          {activeTab === 'integration' && user?.role === 'Admin' && (
+            <section className="admin-panel">
+              <div className="section-title">
+                <div>
+                  <h2>Интеграция</h2>
+                  <p>{ozonIntegrationStatus || 'Ozon ID и ключ хранятся зашифрованными для вашей компании'}</p>
+                </div>
+                <button type="button" className="header-action" onClick={loadOzonIntegrationStatus}>
+                  Проверить Ozon
+                </button>
+              </div>
+
+              <div className="settings-grid">
+                <article className="settings-card">
+                  <span>Компания</span>
+                  <strong>{user.companyName || 'Компания'}</strong>
+                  <small>Сотрудники и интеграции привязаны к этой компании.</small>
+                </article>
+
+                <article className="settings-card">
+                  <span>Ozon API</span>
+                  <strong>
+                    {ozonIntegration
+                      ? ozonIntegration.success
+                        ? 'Подключено'
+                        : ozonIntegration.configured
+                          ? 'Ключи сохранены'
+                          : 'Не настроено'
+                      : 'Не проверено'}
+                  </strong>
+                  <small>
+                    {ozonIntegration
+                      ? `Client ID: ${ozonIntegration.clientIdMasked || '-'} | API Key: ${
+                          ozonIntegration.apiKeyMasked || '-'
+                        }`
+                      : 'Введите Ozon ID и API-ключ.'}
+                  </small>
+                </article>
+              </div>
+
+              <form className="user-form" onSubmit={saveOzonIntegration}>
+                <label>
+                  <span>Ozon ID</span>
+                  <input
+                    value={ozonClientId}
+                    onChange={(event) => setOzonClientId(event.target.value)}
+                    placeholder="Client-Id из кабинета Ozon"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>API-ключ Ozon</span>
+                  <input
+                    value={ozonApiKey}
+                    onChange={(event) => setOzonApiKey(event.target.value)}
+                    placeholder="Api-Key из кабинета Ozon"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                  />
+                </label>
+                <button type="submit">Сохранить Ozon</button>
+              </form>
+            </section>
+          )}
+
           {activeTab === 'users' && user?.role === 'Admin' && (
             <section className="admin-panel">
               <div className="section-title">
@@ -3391,31 +3896,34 @@ function App() {
                   </select>
                 </label>
                 <button type="submit">Добавить</button>
-                <div className="feature-checks user-form-features">
-                  {featureGroups.map((group) => (
-                    <fieldset key={group.title}>
-                      <legend>{group.title}</legend>
-                      {group.items.map((feature) => (
-                        <label key={feature.id}>
-                          <input
-                            type="checkbox"
-                            checked={newUser.role === 'Admin' || newUser.allowedFeatures.includes(feature.id)}
-                            disabled={newUser.role === 'Admin'}
-                            onChange={(event) =>
-                              setNewUser((current) => ({
-                                ...current,
-                                allowedFeatures: event.target.checked
-                                  ? [...current.allowedFeatures, feature.id]
-                                  : current.allowedFeatures.filter((item) => item !== feature.id),
-                              }))
-                            }
-                          />
-                          {feature.label}
-                        </label>
-                      ))}
-                    </fieldset>
-                  ))}
-                </div>
+                <details className="user-settings-panel user-form-features">
+                  <summary>Права доступа</summary>
+                  <div className="feature-checks">
+                    {featureGroups.map((group) => (
+                      <fieldset key={group.title}>
+                        <legend>{group.title}</legend>
+                        {group.items.map((feature) => (
+                          <label key={feature.id}>
+                            <input
+                              type="checkbox"
+                              checked={newUser.role === 'Admin' || newUser.allowedFeatures.includes(feature.id)}
+                              disabled={newUser.role === 'Admin'}
+                              onChange={(event) =>
+                                setNewUser((current) => ({
+                                  ...current,
+                                  allowedFeatures: event.target.checked
+                                    ? [...current.allowedFeatures, feature.id]
+                                    : current.allowedFeatures.filter((item) => item !== feature.id),
+                                }))
+                              }
+                            />
+                            {feature.label}
+                          </label>
+                        ))}
+                      </fieldset>
+                    ))}
+                  </div>
+                </details>
               </form>
 
               <ul className="users-list">
@@ -3425,8 +3933,12 @@ function App() {
                   <li key={item.id}>
                     <span>
                       <span className="user-card-head">
-                        <span className="chat-avatar">
+                        <span className="chat-avatar avatar-presence">
                           {item.avatarUrl ? <img src={item.avatarUrl} alt="" /> : <span>Фото</span>}
+                          <span
+                            className={`presence-dot ${item.isOnline ? 'is-online' : 'is-offline'}`}
+                            aria-label={item.isOnline ? 'В сети' : 'Не в сети'}
+                          />
                         </span>
                         <span>
                           <strong>{item.displayName || item.userName}</strong>
@@ -3436,11 +3948,8 @@ function App() {
                       </span>
                     </span>
                     <b>{item.role}</b>
-                    <span className={`online-status ${item.isOnline ? 'is-online' : 'is-offline'}`}>
-                      {item.isOnline ? 'В сети' : 'Не в сети'}
-                      {!item.isOnline && item.lastSeenAt && (
-                        <small>Был: {formatDateTime(item.lastSeenAt)}</small>
-                      )}
+                    <span className="online-status">
+                      {item.lastSeenAt ? <small>Был: {formatDateTime(item.lastSeenAt)}</small> : <small>-</small>}
                     </span>
                     <input
                       placeholder="Новый пароль"
@@ -3548,7 +4057,7 @@ function App() {
               <div className="section-title">
                 <div>
                   <h2>Настройки</h2>
-                  <p>{auditStatus || 'Системные инструменты и журнал действий'}</p>
+                  <p>{auditStatus || 'Настройки компании и журнал действий'}</p>
                 </div>
                 <span className="section-actions">
                   <button type="button" className="header-action" onClick={() => loadAuditLogs()}>
@@ -3561,26 +4070,6 @@ function App() {
               </div>
 
               <div className="settings-grid">
-                <div>
-                  <span>База данных</span>
-                  <strong>{systemHealth?.databaseOk ? 'PostgreSQL OK' : 'Проверка...'}</strong>
-                  <small>{systemHealthStatus || 'Работает внутри Docker Compose.'}</small>
-                </div>
-                <div>
-                  <span>Бэкапы</span>
-                  <strong>{backupFiles.length ? `${backupFiles.length} файлов` : 'Нет файлов'}</strong>
-                  <small>{backupStatus || 'Файлы складываются в папку backups рядом с проектом.'}</small>
-                  <button type="button" className="settings-card-action" onClick={loadBackups}>
-                    Обновить список
-                  </button>
-                </div>
-                <div>
-                  <span>Просмотр БД</span>
-                  <strong>Adminer</strong>
-                  <a href="http://localhost:8082" target="_blank" rel="noreferrer">
-                    Открыть Adminer
-                  </a>
-                </div>
                 <div>
                   <span>Сервер</span>
                   <strong>{systemHealth ? 'Работает' : 'Проверка...'}</strong>
@@ -3607,36 +4096,6 @@ function App() {
                   </button>
                 </div>
               </div>
-
-              <details className="backup-panel">
-                <summary className="backup-panel-head">
-                  <div>
-                    <h3>Бэкапы базы данных</h3>
-                    <p>{backupStatus || 'Последние сохраненные копии PostgreSQL'}</p>
-                  </div>
-                </summary>
-                <button type="button" className="header-action backup-refresh" onClick={loadBackups}>
-                  Обновить
-                </button>
-                <div className="backup-list">
-                  {backupFiles.map((file) => (
-                    <div className="backup-row" key={file.fileName}>
-                      <span>
-                        <strong>{file.fileName}</strong>
-                        <small>
-                          {formatDateTime(file.createdAt)} | {formatFileSize(file.sizeBytes)}
-                        </small>
-                      </span>
-                      <button type="button" onClick={() => downloadBackup(file.fileName)}>
-                        Скачать
-                      </button>
-                    </div>
-                  ))}
-                  {backupFiles.length === 0 && (
-                    <div className="empty-state">Бэкапы появятся после первого запуска backup-контейнера.</div>
-                  )}
-                </div>
-              </details>
 
               <details className="audit-panel">
                 <summary className="backup-panel-head">
@@ -3722,6 +4181,7 @@ function ProductSearchInput({
   selectedProductId,
   onProductIdChange,
   placeholder,
+  supplierLinks = {},
   required = false,
 }: {
   listId: string
@@ -3729,6 +4189,7 @@ function ProductSearchInput({
   selectedProductId: string
   onProductIdChange: (productId: string) => void
   placeholder: string
+  supplierLinks?: Record<number, string>
   required?: boolean
 }) {
   const selectedProduct = products.find((product) => String(product.productId) === selectedProductId)
@@ -3816,6 +4277,11 @@ function ProductSearchInput({
               {selectedProduct.sku ? ` | SKU ${selectedProduct.sku}` : ''}
             </small>
           </span>
+          {supplierLinks[selectedProduct.productId] && (
+            <a href={supplierLinks[selectedProduct.productId]} target="_blank" rel="noreferrer">
+              Ссылка на поставщика
+            </a>
+          )}
         </div>
       )}
     </div>
@@ -4155,19 +4621,6 @@ function matchesSupply(supply: Supply, search: string) {
     .some((value) => String(value).toLowerCase().includes(search))
 }
 
-function formatFileSize(value: number) {
-  if (value < 1024) {
-    return `${value} Б`
-  }
-
-  const kb = value / 1024
-  if (kb < 1024) {
-    return `${kb.toFixed(1)} КБ`
-  }
-
-  return `${(kb / 1024).toFixed(1)} МБ`
-}
-
 function ProductionTaskArchiveTable({
   tasks,
   products,
@@ -4260,6 +4713,7 @@ function ProductionTaskArchiveTable({
 function SupplyTable({
   supplies,
   ozonProducts,
+  productSupplierLinks,
   replaceProducts,
   setReplaceProducts,
   editingSupplyId,
@@ -4288,6 +4742,7 @@ function SupplyTable({
 }: {
   supplies: Supply[]
   ozonProducts: OzonProduct[]
+  productSupplierLinks: Record<number, string>
   replaceProducts: Record<string, string>
   setReplaceProducts: Dispatch<SetStateAction<Record<string, string>>>
   editingSupplyId: string | null
@@ -4435,6 +4890,7 @@ function SupplyTable({
                   <ProductSearchInput
                     listId={`edit-supply-products-${supply.id}`}
                     products={ozonProducts}
+                    supplierLinks={productSupplierLinks}
                     selectedProductId={editSupplyProductId}
                     onProductIdChange={setEditSupplyProductId}
                     placeholder="Начните писать название или артикул"
@@ -4531,6 +4987,7 @@ function SupplyTable({
                               <ProductSearchInput
                                 listId={`edit-replace-products-${item.tempId}`}
                                 products={ozonProducts}
+                                supplierLinks={productSupplierLinks}
                                 selectedProductId={replaceProducts[item.tempId] ?? ''}
                                 onProductIdChange={(productId) =>
                                   setReplaceProducts((current) => ({
@@ -4592,6 +5049,7 @@ function SupplyTable({
                           <ProductSearchInput
                             listId={`replace-products-${item.id}`}
                             products={ozonProducts}
+                            supplierLinks={productSupplierLinks}
                             selectedProductId={replaceProducts[item.id ?? ''] ?? ''}
                             onProductIdChange={(productId) =>
                               setReplaceProducts((current) => ({
@@ -4718,12 +5176,14 @@ function AllSuppliesTable({ supplies }: { supplies: Supply[] }) {
 
 function StockRow({
   item,
+  urgentInfo,
   priceValue,
   onPriceChange,
   onSave,
   canEditPrice,
 }: {
   item: OzonStock
+  urgentInfo?: UrgentStockItem
   priceValue: string
   onPriceChange: (value: string) => void
   onSave: () => void
@@ -4733,6 +5193,11 @@ function StockRow({
     <div className="table-row stock-row">
       <span data-label="Товар">
         <strong>{item.name}</strong>
+        {urgentInfo && (
+          <small className="urgent-stock-note">
+            Срочно: хватит на {formatDaysLeft(urgentInfo.daysLeft)}, продажи {urgentInfo.dailySales.toFixed(2)}/день
+          </small>
+        )}
         {item.productUrl && (
           <a href={item.productUrl} target="_blank" rel="noreferrer">
             Открыть Ozon
@@ -4757,6 +5222,74 @@ function StockRow({
       </span>
     </div>
   )
+}
+
+type UrgentStockItem = OzonStock & {
+  dailySales: number
+  daysLeft: number
+}
+
+function getStockSortValue(item: OzonStock, key: 'total' | 'fbo' | 'fbs') {
+  if (key === 'fbo') {
+    return item.fboPresent
+  }
+
+  if (key === 'fbs') {
+    return item.fbsPresent
+  }
+
+  return item.fboPresent + item.fbsPresent
+}
+
+function getUrgentSupplyQuantity(item: UrgentStockItem) {
+  const totalStock = item.fboPresent + item.fbsPresent
+  const targetStock = Math.ceil(item.dailySales * 14)
+  return Math.max(1, targetStock - totalStock)
+}
+
+function getUrgentStockItems(stocks: OzonStock[], analytics: OzonAnalytics | null): UrgentStockItem[] {
+  if (!analytics) {
+    return []
+  }
+
+  const salesByKey = new Map<string, number>()
+  for (const row of analytics.topProducts) {
+    if (row.sku) {
+      salesByKey.set(`sku:${row.sku}`, (salesByKey.get(`sku:${row.sku}`) ?? 0) + row.quantity)
+    }
+    if (row.offerId) {
+      salesByKey.set(`offer:${row.offerId}`, (salesByKey.get(`offer:${row.offerId}`) ?? 0) + row.quantity)
+    }
+  }
+
+  return stocks
+    .map((stock) => {
+      const soldQuantity =
+        (stock.sku ? salesByKey.get(`sku:${stock.sku}`) : undefined) ?? salesByKey.get(`offer:${stock.offerId}`) ?? 0
+      const dailySales = soldQuantity / 28
+      const totalStock = stock.fboPresent + stock.fbsPresent
+      const daysLeft = dailySales > 0 ? totalStock / dailySales : Number.POSITIVE_INFINITY
+
+      return {
+        ...stock,
+        dailySales,
+        daysLeft,
+      }
+    })
+    .filter((stock) => stock.dailySales > 0 && stock.daysLeft <= 5)
+    .sort((left, right) => left.daysLeft - right.daysLeft)
+}
+
+function formatDaysLeft(value: number) {
+  if (!Number.isFinite(value)) {
+    return 'не рассчитано'
+  }
+
+  if (value < 1) {
+    return 'меньше 1 дня'
+  }
+
+  return `${Math.ceil(value)} дн.`
 }
 
 function getApiErrorMessage(errorText: string, fallback: string) {

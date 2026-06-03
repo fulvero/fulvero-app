@@ -30,6 +30,8 @@ server/obj/
 *.zip
 *.bak
 backups/
+data-protection-keys/
+server/data-protection-keys/
 
 # OS files
 Thumbs.db
