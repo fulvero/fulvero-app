@@ -193,6 +193,7 @@ type SupplyItem = {
   offerId: string
   productName: string
   quantity: number
+  actualOrderQuantity: number
   isReserve: boolean
 }
 
@@ -232,6 +233,7 @@ type DraftSupplyItem = {
   offerId: string
   productName: string
   quantity: number
+  actualOrderQuantity: number
   isReserve: boolean
 }
 
@@ -374,6 +376,7 @@ function App() {
   const [reserveQuantity, setReserveQuantity] = useState('')
   const [draftSupplyItems, setDraftSupplyItems] = useState<DraftSupplyItem[]>([])
   const [replaceProducts, setReplaceProducts] = useState<Record<string, string>>({})
+  const [supplyActualOrderEdits, setSupplyActualOrderEdits] = useState<Record<string, string>>({})
   const [editingSupplyId, setEditingSupplyId] = useState<string | null>(null)
   const [editSupplyItems, setEditSupplyItems] = useState<DraftSupplyItem[]>([])
   const [editSupplyProductId, setEditSupplyProductId] = useState('')
@@ -2020,6 +2023,7 @@ function App() {
         offerId: product.offerId,
         productName: product.name,
         quantity,
+        actualOrderQuantity: quantity,
         isReserve: false,
       },
     ])
@@ -2043,6 +2047,7 @@ function App() {
         offerId: '',
         productName: reserveProductName.trim(),
         quantity,
+        actualOrderQuantity: quantity,
         isReserve: true,
       },
     ])
@@ -2166,6 +2171,40 @@ function App() {
     }
   }
 
+  async function updateSupplyItemActualOrder(itemId: string, fallbackQuantity: number) {
+    const value = Number(supplyActualOrderEdits[itemId] ?? fallbackQuantity)
+    if (!Number.isFinite(value) || value < 0) {
+      setSupplyStatus('Факт заказа должен быть числом не меньше нуля')
+      return
+    }
+
+    const response = await fetch(`/api/supply-items/${itemId}/actual-order`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ actualOrderQuantity: value }),
+    })
+
+    if (!response.ok) {
+      const message = await response.text()
+      setSupplyStatus(message || 'Не удалось сохранить факт заказа')
+      return
+    }
+
+    setSupplyActualOrderEdits((current) => {
+      const next = { ...current }
+      delete next[itemId]
+      return next
+    })
+    setSupplyStatus('Факт заказа сохранен')
+    await loadSupplies()
+    if (user?.role === 'Admin') {
+      await loadSupplyAnalytics()
+    }
+  }
+
   async function replaceReserveItem(itemId: string) {
     const product = ozonProducts.find((item) => String(item.productId) === replaceProducts[itemId])
 
@@ -2208,6 +2247,7 @@ function App() {
         offerId: item.offerId,
         productName: item.productName,
         quantity: item.quantity,
+        actualOrderQuantity: item.actualOrderQuantity,
         isReserve: item.isReserve,
       })),
     )
@@ -2243,6 +2283,7 @@ function App() {
         offerId: product.offerId,
         productName: product.name,
         quantity,
+        actualOrderQuantity: quantity,
         isReserve: false,
       },
     ])
@@ -2265,6 +2306,7 @@ function App() {
         offerId: '',
         productName: editReserveProductName.trim(),
         quantity,
+        actualOrderQuantity: quantity,
         isReserve: true,
       },
     ])
@@ -3512,8 +3554,11 @@ function App() {
                     onAddEditReserve={addEditReserveSupplyProduct}
                   onSaveEdit={saveSupplyEdit}
                   onDeleteSupply={deleteSupply}
-                  onArchiveSupply={archiveSupply}
-                  onStatusChange={updateSupplyStatus}
+                    onArchiveSupply={archiveSupply}
+                    onStatusChange={updateSupplyStatus}
+                    supplyActualOrderEdits={supplyActualOrderEdits}
+                    setSupplyActualOrderEdits={setSupplyActualOrderEdits}
+                    onActualOrderChange={updateSupplyItemActualOrder}
                   onReplaceReserve={replaceReserveItem}
                   userRole={user?.role}
                 />
@@ -3546,6 +3591,9 @@ function App() {
                   onDeleteSupply={deleteSupply}
                   onArchiveSupply={archiveSupply}
                   onStatusChange={updateSupplyStatus}
+                  supplyActualOrderEdits={supplyActualOrderEdits}
+                  setSupplyActualOrderEdits={setSupplyActualOrderEdits}
+                  onActualOrderChange={updateSupplyItemActualOrder}
                   onReplaceReserve={replaceReserveItem}
                   userRole={user?.role}
                   hideItemsUntilEdit
@@ -3580,6 +3628,9 @@ function App() {
                   onDeleteSupply={deleteSupply}
                   onArchiveSupply={archiveSupply}
                   onStatusChange={updateSupplyStatus}
+                  supplyActualOrderEdits={supplyActualOrderEdits}
+                  setSupplyActualOrderEdits={setSupplyActualOrderEdits}
+                  onActualOrderChange={updateSupplyItemActualOrder}
                   onReplaceReserve={replaceReserveItem}
                   userRole={user?.role}
                   archiveMode
@@ -4735,6 +4786,9 @@ function SupplyTable({
   onDeleteSupply,
   onArchiveSupply,
   onStatusChange,
+  supplyActualOrderEdits,
+  setSupplyActualOrderEdits,
+  onActualOrderChange,
   onReplaceReserve,
   userRole,
   hideItemsUntilEdit = false,
@@ -4764,6 +4818,9 @@ function SupplyTable({
   onDeleteSupply: (id: string) => void
   onArchiveSupply: (id: string) => void
   onStatusChange: (id: string, status: SupplyStatus) => void
+  supplyActualOrderEdits: Record<string, string>
+  setSupplyActualOrderEdits: Dispatch<SetStateAction<Record<string, string>>>
+  onActualOrderChange: (itemId: string, fallbackQuantity: number) => void
   onReplaceReserve: (itemId: string) => void
   userRole?: string
   hideItemsUntilEdit?: boolean
@@ -4787,6 +4844,7 @@ function SupplyTable({
               offerId: item.offerId,
               productName: item.productName,
               quantity: item.quantity,
+              actualOrderQuantity: item.actualOrderQuantity,
               isReserve: item.isReserve,
             }))
 
@@ -4934,6 +4992,8 @@ function SupplyTable({
                   <span>Товар</span>
                   <span>Артикул</span>
                   <span>Количество</span>
+                  <span>Факт заказа</span>
+                  <span>Поставщик</span>
                   <span>Тип</span>
                   <span>{isEditing ? 'Действия' : 'Замена'}</span>
                 </div>
@@ -4976,6 +5036,55 @@ function SupplyTable({
                         />
                       ) : (
                         item.quantity
+                      )}
+                    </span>
+                    <span className="supply-actual-cell">
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          min="0"
+                          value={item.actualOrderQuantity}
+                          onChange={(event) =>
+                            setEditSupplyItems((current) =>
+                              current.map((row) =>
+                                row.tempId === item.tempId
+                                  ? { ...row, actualOrderQuantity: Number(event.target.value) }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      ) : item.id && !archiveMode ? (
+                        <>
+                          <input
+                            type="number"
+                            min="0"
+                            value={supplyActualOrderEdits[item.id] ?? String(item.actualOrderQuantity)}
+                            onChange={(event) =>
+                              setSupplyActualOrderEdits((current) => ({
+                                ...current,
+                                [item.id ?? '']: event.target.value,
+                              }))
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() => item.id && onActualOrderChange(item.id, item.actualOrderQuantity)}
+                          >
+                            Сохранить
+                          </button>
+                        </>
+                      ) : (
+                        item.actualOrderQuantity
+                      )}
+                    </span>
+                    <span>
+                      {item.ozonProductId && productSupplierLinks[item.ozonProductId] ? (
+                        <a href={productSupplierLinks[item.ozonProductId]} target="_blank" rel="noreferrer">
+                          Ссылка на поставщика
+                        </a>
+                      ) : (
+                        '-'
                       )}
                     </span>
                     <span>{item.isReserve ? 'Резервный' : 'Постоянный'}</span>

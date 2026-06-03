@@ -21,6 +21,7 @@ public class SupplyItem
     public string OfferId { get; set; } = string.Empty;
     public string ProductName { get; set; } = string.Empty;
     public int Quantity { get; set; }
+    public int ActualOrderQuantity { get; set; }
     public bool IsReserve { get; set; }
 }
 

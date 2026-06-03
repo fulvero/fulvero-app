@@ -1784,6 +1784,7 @@ app.MapGet("/api/supplies", async (AppDbContext db, ClaimsPrincipal principal) =
                     item.OfferId,
                     item.ProductName,
                     item.Quantity,
+                    item.ActualOrderQuantity,
                     item.IsReserve))
                 .ToList(),
             historiesBySupplyId.GetValueOrDefault(supply.Id.ToString()) ?? []))
@@ -1811,13 +1812,14 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
             OfferId = item.IsReserve ? string.Empty : item.OfferId.Trim(),
             ProductName = item.ProductName.Trim(),
             Quantity = item.Quantity,
+            ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
             IsReserve = item.IsReserve
         }).ToList()
     };
 
-    if (supply.Items.Any(item => item.Quantity <= 0 || string.IsNullOrWhiteSpace(item.ProductName)))
+    if (supply.Items.Any(item => item.Quantity <= 0 || item.ActualOrderQuantity < 0 || string.IsNullOrWhiteSpace(item.ProductName)))
     {
-        return Results.BadRequest("Укажите название и количество больше нуля для каждой строки.");
+        return Results.BadRequest("Укажите название, количество больше нуля и факт заказа не меньше нуля для каждой строки.");
     }
 
     db.Supplies.Add(supply);
@@ -1838,6 +1840,7 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
             item.OfferId,
             item.ProductName,
             item.Quantity,
+            item.ActualOrderQuantity,
             item.IsReserve)).ToList(),
         []));
 }).RequireAuthorization();
@@ -1894,6 +1897,7 @@ app.MapPost("/api/supplies/import", async (
             OfferId = item.IsReserve ? string.Empty : item.OfferId.Trim(),
             ProductName = item.ProductName.Trim(),
             Quantity = item.Quantity,
+            ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
             IsReserve = item.IsReserve
         }).ToList()
     };
@@ -1995,12 +1999,13 @@ app.MapPut("/api/supplies/{id:guid}", async (
         OfferId = item.IsReserve ? string.Empty : item.OfferId.Trim(),
         ProductName = item.ProductName.Trim(),
         Quantity = item.Quantity,
+        ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
         IsReserve = item.IsReserve
     }).ToList();
 
-    if (updatedItems.Any(item => item.Quantity <= 0 || string.IsNullOrWhiteSpace(item.ProductName)))
+    if (updatedItems.Any(item => item.Quantity <= 0 || item.ActualOrderQuantity < 0 || string.IsNullOrWhiteSpace(item.ProductName)))
     {
-        return Results.BadRequest("Укажите название и количество больше нуля для каждой строки.");
+        return Results.BadRequest("Укажите название, количество больше нуля и факт заказа не меньше нуля для каждой строки.");
     }
 
     db.SupplyItems.RemoveRange(supply.Items);
@@ -2008,6 +2013,41 @@ app.MapPut("/api/supplies/{id:guid}", async (
     AuditLogWriter.Add(db, principal, "Редактирование поставки", "Supply", supply.Id.ToString(), $"Товаров: {updatedItems.Count}");
     await db.SaveChangesAsync();
 
+    return Results.NoContent();
+}).RequireAuthorization();
+
+app.MapPut("/api/supply-items/{id:guid}/actual-order", async (
+    Guid id,
+    UpdateSupplyItemActualOrderRequest request,
+    AppDbContext db,
+    ClaimsPrincipal principal) =>
+{
+    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Supplies))
+    {
+        return Results.Forbid();
+    }
+
+    if (request.ActualOrderQuantity < 0)
+    {
+        return Results.BadRequest("Факт заказа не может быть меньше нуля.");
+    }
+
+    var item = await db.SupplyItems
+        .Include(supplyItem => supplyItem.Supply)
+        .SingleOrDefaultAsync(supplyItem => supplyItem.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (item.Supply.IsArchived)
+    {
+        return Results.BadRequest("Архивную поставку нельзя менять.");
+    }
+
+    item.ActualOrderQuantity = request.ActualOrderQuantity;
+    AuditLogWriter.Add(db, principal, "Факт заказа поставки", "SupplyItem", item.Id.ToString(), $"{item.ProductName}: {item.ActualOrderQuantity}");
+    await db.SaveChangesAsync();
     return Results.NoContent();
 }).RequireAuthorization();
 
@@ -2377,10 +2417,11 @@ record ProductionTaskListItem(
     List<ProductionTaskItemListItem> Items);
 record ProductionTaskItemListItem(Guid Id, long OzonProductId, string OfferId, string ProductName, int RequiredQuantity, int? ActualQuantity);
 record CreateSupplyRequest(List<CreateSupplyItemRequest> Items);
-record CreateSupplyItemRequest(long? OzonProductId, string OfferId, string ProductName, int Quantity, bool IsReserve);
+record CreateSupplyItemRequest(long? OzonProductId, string OfferId, string ProductName, int Quantity, int? ActualOrderQuantity, bool IsReserve);
 record UpdateSupplyRequest(List<CreateSupplyItemRequest> Items);
 record ChangeSupplyStatusRequest(string Status);
 record ReplaceReserveSupplyItemRequest(long OzonProductId, string OfferId, string ProductName);
+record UpdateSupplyItemActualOrderRequest(int ActualOrderQuantity);
 record SupplyListItem(
     Guid Id,
     string Status,
@@ -2397,6 +2438,7 @@ record SupplyItemListItem(
     string OfferId,
     string ProductName,
     int Quantity,
+    int ActualOrderQuantity,
     bool IsReserve);
 record SupplyHistoryItem(
     Guid Id,
@@ -2849,7 +2891,7 @@ static class ExcelSupplyImport
                 throw new InvalidOperationException($"Строка {index + 2}: для постоянного товара нужен артикул.");
             }
 
-            return new CreateSupplyItemRequest(productId, offerId, productName, quantity, isReserve);
+            return new CreateSupplyItemRequest(productId, offerId, productName, quantity, quantity, isReserve);
         }).ToList();
     }
 
