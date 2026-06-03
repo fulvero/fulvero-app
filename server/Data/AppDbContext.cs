@@ -56,8 +56,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<ProductSupplierLink>(entity =>
         {
-            entity.HasIndex(link => new { link.CompanyId, link.OzonProductId }).IsUnique();
+            entity.HasIndex(link => new { link.CompanyId, link.OzonProductId });
             entity.Property(link => link.OfferId).HasMaxLength(120);
+            entity.Property(link => link.SupplierName).HasMaxLength(180);
             entity.Property(link => link.SupplierUrl).HasMaxLength(1000);
             entity.HasOne(link => link.Company)
                 .WithMany()

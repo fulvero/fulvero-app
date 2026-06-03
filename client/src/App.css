@@ -828,6 +828,24 @@
   background: #f8fafc;
 }
 
+.selected-supplier-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.selected-supplier-links a {
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
 .selected-product-card strong,
 .selected-product-card small {
   display: block;
@@ -1017,7 +1035,44 @@
 .supplier-link-actions {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.supplier-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.supplier-editor-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(240px, 1.2fr) auto;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.supplier-editor-row label {
+  display: grid;
+  gap: 6px;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.supplier-editor-row input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cfd6e3;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #121826;
+  background: #ffffff;
+  font: inherit;
 }
 
 .tiny-danger {
@@ -2652,6 +2707,10 @@
   .stock-price-cell,
   .stock-save-cell {
     width: 100%;
+  }
+
+  .supplier-editor-row {
+    grid-template-columns: 1fr;
   }
 
   .supply-actual-cell {

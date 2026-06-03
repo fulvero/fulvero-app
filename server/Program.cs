@@ -1136,14 +1136,15 @@ app.MapGet("/api/product-supplier-links", async (AppDbContext db, ClaimsPrincipa
     var links = await db.ProductSupplierLinks
         .AsNoTracking()
         .Where(link => link.CompanyId == companyId)
-        .Select(link => new ProductSupplierLinkResponse(link.OzonProductId, link.OfferId, link.SupplierUrl))
+        .OrderBy(link => link.SupplierName)
+        .Select(link => new ProductSupplierLinkResponse(link.Id, link.OzonProductId, link.OfferId, link.SupplierName, link.SupplierUrl))
         .ToListAsync();
     return Results.Ok(links);
 }).RequireAuthorization();
 
 app.MapPut("/api/product-supplier-links/{ozonProductId:long}", async (
     long ozonProductId,
-    UpdateProductSupplierLinkRequest request,
+    UpdateProductSupplierLinksRequest request,
     AppDbContext db,
     ClaimsPrincipal principal) =>
 {
@@ -1153,25 +1154,42 @@ app.MapPut("/api/product-supplier-links/{ozonProductId:long}", async (
     }
 
     var companyId = CompanyAccess.GetCompanyId(principal);
-    var link = await db.ProductSupplierLinks.FirstOrDefaultAsync(item =>
-        item.CompanyId == companyId && item.OzonProductId == ozonProductId);
-
-    if (link is null)
+    if (request.Suppliers.Count > 20)
     {
-        link = new ProductSupplierLink
-        {
-            CompanyId = companyId,
-            OzonProductId = ozonProductId
-        };
-        db.ProductSupplierLinks.Add(link);
+        return Results.BadRequest("Для одного товара можно добавить не больше 20 поставщиков.");
     }
 
-    link.OfferId = request.OfferId.Trim();
-    link.SupplierUrl = request.SupplierUrl.Trim();
-    link.UpdatedAt = DateTimeOffset.UtcNow;
+    var suppliers = request.Suppliers
+        .Select(item => new UpdateProductSupplierLinkRequest(item.SupplierName.Trim(), item.SupplierUrl.Trim()))
+        .Where(item => !string.IsNullOrWhiteSpace(item.SupplierName) && !string.IsNullOrWhiteSpace(item.SupplierUrl))
+        .ToList();
+    if (request.Suppliers.Count > 0 && suppliers.Count != request.Suppliers.Count)
+    {
+        return Results.BadRequest("У каждого поставщика должны быть название и ссылка.");
+    }
+
+    var currentLinks = await db.ProductSupplierLinks
+        .Where(item => item.CompanyId == companyId && item.OzonProductId == ozonProductId)
+        .ToListAsync();
+    db.ProductSupplierLinks.RemoveRange(currentLinks);
+    db.ProductSupplierLinks.AddRange(suppliers.Select(item => new ProductSupplierLink
+    {
+        CompanyId = companyId,
+        OzonProductId = ozonProductId,
+        OfferId = request.OfferId.Trim(),
+        SupplierName = item.SupplierName,
+        SupplierUrl = item.SupplierUrl,
+        UpdatedAt = DateTimeOffset.UtcNow
+    }));
 
     await db.SaveChangesAsync();
-    return Results.Ok(new ProductSupplierLinkResponse(link.OzonProductId, link.OfferId, link.SupplierUrl));
+    var updated = await db.ProductSupplierLinks
+        .AsNoTracking()
+        .Where(item => item.CompanyId == companyId && item.OzonProductId == ozonProductId)
+        .OrderBy(item => item.SupplierName)
+        .Select(item => new ProductSupplierLinkResponse(item.Id, item.OzonProductId, item.OfferId, item.SupplierName, item.SupplierUrl))
+        .ToListAsync();
+    return Results.Ok(updated);
 }).RequireAuthorization();
 
 app.MapDelete("/api/product-supplier-links/{ozonProductId:long}", async (
@@ -1185,14 +1203,15 @@ app.MapDelete("/api/product-supplier-links/{ozonProductId:long}", async (
     }
 
     var companyId = CompanyAccess.GetCompanyId(principal);
-    var link = await db.ProductSupplierLinks.FirstOrDefaultAsync(item =>
-        item.CompanyId == companyId && item.OzonProductId == ozonProductId);
-    if (link is null)
+    var links = await db.ProductSupplierLinks
+        .Where(item => item.CompanyId == companyId && item.OzonProductId == ozonProductId)
+        .ToListAsync();
+    if (links.Count == 0)
     {
         return Results.NotFound();
     }
 
-    db.ProductSupplierLinks.Remove(link);
+    db.ProductSupplierLinks.RemoveRange(links);
     await db.SaveChangesAsync();
     return Results.NoContent();
 }).RequireAuthorization();
@@ -2499,8 +2518,9 @@ record SystemHealthResponse(
     string DotnetVersion);
 record BackupFileResponse(string FileName, long SizeBytes, DateTimeOffset CreatedAt);
 record BillingCheckoutResponse(string ConfirmationUrl, string PaymentId);
-record ProductSupplierLinkResponse(long OzonProductId, string OfferId, string SupplierUrl);
-record UpdateProductSupplierLinkRequest(string OfferId, string SupplierUrl);
+record ProductSupplierLinkResponse(Guid Id, long OzonProductId, string OfferId, string SupplierName, string SupplierUrl);
+record UpdateProductSupplierLinksRequest(string OfferId, List<UpdateProductSupplierLinkRequest> Suppliers);
+record UpdateProductSupplierLinkRequest(string SupplierName, string SupplierUrl);
 record UpdateOzonIntegrationRequest(string ClientId, string ApiKey);
 record OzonIntegrationStatusResponse(
     bool Configured,

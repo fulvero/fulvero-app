@@ -142,8 +142,17 @@ type OzonSupplyOrder = {
 }
 
 type ProductSupplierLink = {
+  id?: string
   ozonProductId: number
   offerId: string
+  supplierName: string
+  supplierUrl: string
+}
+
+type SupplierLinkDraft = {
+  tempId: string
+  id?: string
+  supplierName: string
   supplierUrl: string
 }
 
@@ -346,7 +355,9 @@ function App() {
   const [editingPrices, setEditingPrices] = useState<Record<number, string>>({})
   const [analyticsStatus, setAnalyticsStatus] = useState('')
   const [analytics, setAnalytics] = useState<OzonAnalytics | null>(null)
-  const [productSupplierLinks, setProductSupplierLinks] = useState<Record<number, string>>({})
+  const [productSupplierLinks, setProductSupplierLinks] = useState<Record<number, ProductSupplierLink[]>>({})
+  const [supplierModalProduct, setSupplierModalProduct] = useState<OzonProduct | null>(null)
+  const [supplierDrafts, setSupplierDrafts] = useState<SupplierLinkDraft[]>([])
   const [analyticsSubTab, setAnalyticsSubTab] = useState<AnalyticsSubTab>('summary')
   const [productionSearch, setProductionSearch] = useState('')
   const [productionSubTab, setProductionSubTab] = useState<ProductionSubTab>('products')
@@ -1397,46 +1408,69 @@ function App() {
 
     const data: ProductSupplierLink[] = await response.json()
     setProductSupplierLinks(
-      data.reduce<Record<number, string>>((acc, item) => {
-        acc[item.ozonProductId] = item.supplierUrl
+      data.reduce<Record<number, ProductSupplierLink[]>>((acc, item) => {
+        acc[item.ozonProductId] = [...(acc[item.ozonProductId] ?? []), item]
         return acc
       }, {}),
     )
   }
 
-  async function saveSupplierLink(product: OzonProduct) {
-    const currentValue = productSupplierLinks[product.productId] ?? ''
-    const supplierUrl = window.prompt(`Ссылка на поставщика для ${product.offerId}`, currentValue)
-    if (supplierUrl === null) {
+  function openSupplierModal(product: OzonProduct) {
+    setSupplierModalProduct(product)
+    setSupplierDrafts(
+      (productSupplierLinks[product.productId] ?? []).map((item) => ({
+        tempId: item.id ?? createTempId(),
+        id: item.id,
+        supplierName: item.supplierName,
+        supplierUrl: item.supplierUrl,
+      })),
+    )
+  }
+
+  function addSupplierDraft() {
+    setSupplierDrafts((current) => [
+      ...current,
+      { tempId: createTempId(), supplierName: '', supplierUrl: '' },
+    ])
+  }
+
+  async function saveSupplierLinks() {
+    if (!supplierModalProduct) {
       return
     }
 
-    const response = await fetch(`/api/product-supplier-links/${product.productId}`, {
+    const response = await fetch(`/api/product-supplier-links/${supplierModalProduct.productId}`, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        offerId: product.offerId,
-        supplierUrl,
+        offerId: supplierModalProduct.offerId,
+        suppliers: supplierDrafts.map(({ supplierName, supplierUrl }) => ({
+          supplierName,
+          supplierUrl,
+        })),
       }),
     })
 
     if (!response.ok) {
-      setOzonStatus(getApiErrorMessage(await response.text(), 'Не удалось сохранить ссылку поставщика'))
+      setOzonStatus(getApiErrorMessage(await response.text(), 'Не удалось сохранить поставщиков'))
       return
     }
 
+    const updated: ProductSupplierLink[] = await response.json()
     setProductSupplierLinks((current) => ({
       ...current,
-      [product.productId]: supplierUrl.trim(),
+      [supplierModalProduct.productId]: updated,
     }))
-    setOzonStatus('Ссылка поставщика сохранена')
+    setSupplierModalProduct(null)
+    setSupplierDrafts([])
+    setOzonStatus('Поставщики товара сохранены')
   }
 
-  async function deleteSupplierLink(product: OzonProduct) {
-    if (!window.confirm(`Удалить ссылку поставщика для ${product.offerId}?`)) {
+  async function deleteSupplierLinks(product: OzonProduct) {
+    if (!window.confirm(`Удалить всех поставщиков для ${product.offerId}?`)) {
       return
     }
 
@@ -1457,7 +1491,7 @@ function App() {
       delete next[product.productId]
       return next
     })
-    setOzonStatus('Ссылка поставщика удалена')
+    setOzonStatus('Поставщики товара удалены')
   }
 
   async function loadOzonStocks() {
@@ -2629,6 +2663,84 @@ function App() {
         </div>
       )}
 
+      {supplierModalProduct && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card modal-card-wide" role="dialog" aria-modal="true">
+            <div className="modal-title-row">
+              <div>
+                <h3>Поставщики товара</h3>
+                <p>{supplierModalProduct.offerId} · {supplierModalProduct.name}</p>
+              </div>
+              <button type="button" onClick={() => setSupplierModalProduct(null)}>
+                Закрыть
+              </button>
+            </div>
+
+            <div className="supplier-editor">
+              {supplierDrafts.map((item) => (
+                <div className="supplier-editor-row" key={item.tempId}>
+                  <label>
+                    <span>Название поставщика</span>
+                    <input
+                      value={item.supplierName}
+                      placeholder="Например: ИП Иванов"
+                      onChange={(event) =>
+                        setSupplierDrafts((current) =>
+                          current.map((row) =>
+                            row.tempId === item.tempId
+                              ? { ...row, supplierName: event.target.value }
+                              : row,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>Ссылка на заказ</span>
+                    <input
+                      value={item.supplierUrl}
+                      placeholder="https://..."
+                      onChange={(event) =>
+                        setSupplierDrafts((current) =>
+                          current.map((row) =>
+                            row.tempId === item.tempId
+                              ? { ...row, supplierUrl: event.target.value }
+                              : row,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="tiny-danger"
+                    onClick={() =>
+                      setSupplierDrafts((current) => current.filter((row) => row.tempId !== item.tempId))
+                    }
+                  >
+                    Удалить
+                  </button>
+                </div>
+              ))}
+              {supplierDrafts.length === 0 && (
+                <div className="empty-state">
+                  <strong>Поставщики еще не добавлены.</strong>
+                </div>
+              )}
+            </div>
+
+            <div className="supply-actions">
+              <button type="button" onClick={addSupplierDraft}>
+                Добавить поставщика
+              </button>
+              <button type="button" onClick={saveSupplierLinks}>
+                Сохранить поставщиков
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showUrgentStockModal && (
         <div className="modal-backdrop" role="presentation">
           <div className="modal-card urgent-modal" role="dialog" aria-modal="true">
@@ -3060,18 +3172,18 @@ function App() {
                       )}
                     </span>
                     <span>
-                      {productSupplierLinks[item.productId] ? (
+                      {(productSupplierLinks[item.productId] ?? []).length > 0 ? (
                         <span className="supplier-link-actions">
-                          <a href={productSupplierLinks[item.productId]} target="_blank" rel="noreferrer">
-                            Ссылка поставщика
-                          </a>
-                          <button type="button" className="tiny-danger" onClick={() => deleteSupplierLink(item)}>
-                            Удалить
+                          <button type="button" onClick={() => openSupplierModal(item)}>
+                            Поставщики: {(productSupplierLinks[item.productId] ?? []).length}
+                          </button>
+                          <button type="button" className="tiny-danger" onClick={() => deleteSupplierLinks(item)}>
+                            Удалить все
                           </button>
                         </span>
                       ) : (
-                        <button type="button" onClick={() => saveSupplierLink(item)}>
-                          Добавить ссылку
+                        <button type="button" onClick={() => openSupplierModal(item)}>
+                          Добавить поставщика
                         </button>
                       )}
                     </span>
@@ -4286,7 +4398,7 @@ function ProductSearchInput({
   selectedProductId: string
   onProductIdChange: (productId: string) => void
   placeholder: string
-  supplierLinks?: Record<number, string>
+  supplierLinks?: Record<number, ProductSupplierLink[]>
   required?: boolean
 }) {
   const selectedProduct = products.find((product) => String(product.productId) === selectedProductId)
@@ -4374,10 +4486,14 @@ function ProductSearchInput({
               {selectedProduct.sku ? ` | SKU ${selectedProduct.sku}` : ''}
             </small>
           </span>
-          {supplierLinks[selectedProduct.productId] && (
-            <a href={supplierLinks[selectedProduct.productId]} target="_blank" rel="noreferrer">
-              Ссылка на поставщика
-            </a>
+          {(supplierLinks[selectedProduct.productId] ?? []).length > 0 && (
+            <span className="selected-supplier-links">
+              {(supplierLinks[selectedProduct.productId] ?? []).map((link) => (
+                <a href={link.supplierUrl} target="_blank" rel="noreferrer" key={link.id ?? link.supplierUrl}>
+                  {link.supplierName || 'Поставщик'}
+                </a>
+              ))}
+            </span>
           )}
         </div>
       )}
@@ -4842,7 +4958,7 @@ function SupplyTable({
 }: {
   supplies: Supply[]
   ozonProducts: OzonProduct[]
-  productSupplierLinks: Record<number, string>
+  productSupplierLinks: Record<number, ProductSupplierLink[]>
   replaceProducts: Record<string, string>
   setReplaceProducts: Dispatch<SetStateAction<Record<string, string>>>
   editingSupplyId: string | null
@@ -5125,10 +5241,14 @@ function SupplyTable({
                       )}
                     </span>
                     <span>
-                      {item.ozonProductId && productSupplierLinks[item.ozonProductId] ? (
-                        <a href={productSupplierLinks[item.ozonProductId]} target="_blank" rel="noreferrer">
-                          Ссылка на поставщика
-                        </a>
+                      {item.ozonProductId && (productSupplierLinks[item.ozonProductId] ?? []).length > 0 ? (
+                        <span className="selected-supplier-links">
+                          {(productSupplierLinks[item.ozonProductId] ?? []).map((link) => (
+                            <a href={link.supplierUrl} target="_blank" rel="noreferrer" key={link.id ?? link.supplierUrl}>
+                              {link.supplierName || 'Поставщик'}
+                            </a>
+                          ))}
+                        </span>
                       ) : (
                         '-'
                       )}
