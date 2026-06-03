@@ -76,7 +76,10 @@ type OzonProduct = {
   status: string
   productUrl: string
   imageUrl: string
+  productType: ProductType
 }
+
+type ProductType = '' | 'Production' | 'Purchase'
 
 type OzonStock = {
   productId: number
@@ -130,15 +133,6 @@ type OzonAnalytics = {
     currencyCode: string
   }
   timestamp: string
-}
-
-type OzonSupplyOrder = {
-  id: string
-  status: string
-  warehouseName: string
-  createdAt: string
-  updatedAt: string
-  itemsCount: number
 }
 
 type ProductSupplierLink = {
@@ -269,6 +263,7 @@ function createTempId() {
 }
 
 const tabs = [
+  { id: 'dashboard', label: 'Главная' },
   { id: 'production', label: 'Производство' },
   { id: 'products', label: 'Товары' },
   { id: 'analytics', label: 'Аналитика' },
@@ -303,7 +298,6 @@ const featureGroups = [
       { id: 'supplies.all', label: 'Все поставки' },
       { id: 'supplies.archive', label: 'Архив поставок' },
       { id: 'supplies.analytics', label: 'Аналитика по товару' },
-      { id: 'supplies.ozon', label: 'Поставки' },
     ],
   },
   {
@@ -319,11 +313,12 @@ const featureGroups = [
     ],
   },
 ]
-const defaultUserFeatures = ['production', 'production.products', 'production.tasks', 'production.inProgress', 'production.deferred', 'production.completed', 'products', 'supplies', 'supplies.create', 'supplies.ozon', 'supplies.all', 'chats']
+const defaultUserFeatures = ['production', 'production.products', 'production.tasks', 'production.inProgress', 'production.deferred', 'production.completed', 'products', 'supplies', 'supplies.create', 'supplies.all', 'chats']
 
 type TabId = (typeof tabs)[number]['id']
 type ProductionSubTab = 'products' | 'tasks' | 'inProgress' | 'deferred' | 'completed' | 'archive'
-type SupplySubTab = 'create' | 'editor' | 'ozon' | 'all' | 'archive' | 'analytics'
+type SupplySubTab = 'create' | 'editor' | 'all' | 'archive' | 'analytics'
+type ProductsSubTab = 'settings' | 'production' | 'purchase'
 type AnalyticsSubTab = 'summary' | 'topProducts'
 
 function App() {
@@ -341,7 +336,7 @@ function App() {
   const [ozonIntegrationStatus, setOzonIntegrationStatus] = useState('')
   const [ozonClientId, setOzonClientId] = useState('')
   const [ozonApiKey, setOzonApiKey] = useState('')
-  const [activeTab, setActiveTab] = useState<TabId>('production')
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   const [isLoading, setIsLoading] = useState(true)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [loginError, setLoginError] = useState('')
@@ -363,6 +358,7 @@ function App() {
   const [productSupplierLinks, setProductSupplierLinks] = useState<Record<number, ProductSupplierLink[]>>({})
   const [supplierModalProduct, setSupplierModalProduct] = useState<OzonProduct | null>(null)
   const [supplierDrafts, setSupplierDrafts] = useState<SupplierLinkDraft[]>([])
+  const [productsSubTab, setProductsSubTab] = useState<ProductsSubTab>('settings')
   const [analyticsSubTab, setAnalyticsSubTab] = useState<AnalyticsSubTab>('summary')
   const [productionSearch, setProductionSearch] = useState('')
   const [productionSubTab, setProductionSubTab] = useState<ProductionSubTab>('products')
@@ -384,8 +380,6 @@ function App() {
   const [supplyStatusFilter, setSupplyStatusFilter] = useState<'all' | SupplyStatus>('all')
   const [supplyAnalytics, setSupplyAnalytics] = useState<SupplyAnalyticsItem[]>([])
   const [supplyStatus, setSupplyStatus] = useState('')
-  const [ozonSupplyOrders, setOzonSupplyOrders] = useState<OzonSupplyOrder[]>([])
-  const [ozonSupplyStatus, setOzonSupplyStatus] = useState('')
   const [supplyProductId, setSupplyProductId] = useState('')
   const [supplyQuantity, setSupplyQuantity] = useState('')
   const [reserveProductName, setReserveProductName] = useState('')
@@ -404,7 +398,6 @@ function App() {
   const [editReserveSupplierName, setEditReserveSupplierName] = useState('')
   const [editReserveSupplierUrl, setEditReserveSupplierUrl] = useState('')
   const [analyticsProductKey, setAnalyticsProductKey] = useState('')
-  const [showSupplyHelp, setShowSupplyHelp] = useState(false)
   const [showCreateSupplyModal, setShowCreateSupplyModal] = useState(false)
   const [supplyImportFile, setSupplyImportFile] = useState<File | null>(null)
   const [newUser, setNewUser] = useState({
@@ -437,8 +430,11 @@ function App() {
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null)
   const selectedChatUserIdRef = useRef('')
   const normalizedProductionSearch = productionSearch.trim().toLowerCase()
-  const filteredOzonProducts = normalizedProductionSearch
-    ? ozonProducts.filter((item) =>
+  const unsetProducts = ozonProducts.filter((item) => !item.productType)
+  const productionProducts = ozonProducts.filter((item) => item.productType === 'Production')
+  const purchaseProducts = ozonProducts.filter((item) => item.productType === 'Purchase')
+  const filteredProductionProducts = normalizedProductionSearch
+    ? productionProducts.filter((item) =>
         [
           item.productId,
           item.offerId,
@@ -454,7 +450,13 @@ function App() {
           .filter((value) => value !== undefined && value !== null)
           .some((value) => String(value).toLowerCase().includes(normalizedProductionSearch)),
       )
-    : ozonProducts
+    : productionProducts
+  const productsBySubTab =
+    productsSubTab === 'settings'
+      ? unsetProducts
+      : productsSubTab === 'production'
+        ? productionProducts
+        : purchaseProducts
   const normalizedTaskSearch = taskSearch.trim().toLowerCase()
   const filteredProductionTasks = normalizedTaskSearch
     ? productionTasks.filter((task) => matchesProductionTask(task, normalizedTaskSearch))
@@ -510,6 +512,12 @@ function App() {
     }))
     .sort((left, right) => right.quantity - left.quantity)
   const urgentStockItems = getUrgentStockItems(ozonStocks, analytics)
+  const urgentProductionItems = urgentStockItems.filter((item) =>
+    productionProducts.some((product) => product.productId === item.productId),
+  )
+  const urgentPurchaseItems = urgentStockItems.filter((item) =>
+    purchaseProducts.some((product) => product.productId === item.productId),
+  )
   const visibleOzonStocks = urgentStockOnly
     ? filteredOzonStocks.filter((stock) =>
         urgentStockItems.some((urgentItem) => urgentItem.productId === stock.productId),
@@ -550,6 +558,10 @@ function App() {
     user?.role === 'Admin' || Boolean(user?.allowedFeatures?.includes(feature))
   const hasSubFeature = (feature: string, _fallback: string) => hasFeature(feature)
   const visibleTabs = tabs.filter((tab) => {
+    if (tab.id === 'dashboard') {
+      return true
+    }
+
     if ('adminOnly' in tab) {
       return user?.role === 'Admin'
     }
@@ -583,7 +595,7 @@ function App() {
       return
     }
 
-    setActiveTab(visibleTabs[0]?.id ?? 'production')
+    setActiveTab(visibleTabs[0]?.id ?? 'dashboard')
   }, [activeTab, user, visibleTabs])
 
   useEffect(() => {
@@ -609,7 +621,6 @@ function App() {
       ['all', 'supplies.all'],
       ['archive', 'supplies.archive'],
       ['analytics', 'supplies.analytics'],
-      ['ozon', 'supplies.ozon'],
     ]
     if (activeTab === 'supplies' && !hasSubFeature(`supplies.${supplySubTab}`, 'supplies')) {
       setSupplySubTab(supplyFallbacks.find(([, feature]) => hasSubFeature(feature, 'supplies'))?.[0] ?? 'create')
@@ -742,14 +753,6 @@ function App() {
 
     loadOzonStocks()
   }, [token, activeTab])
-
-  useEffect(() => {
-    if (!token || activeTab !== 'supplies' || supplySubTab !== 'ozon') {
-      return
-    }
-
-    loadOzonSupplyOrders()
-  }, [token, activeTab, supplySubTab])
 
   useEffect(() => {
     if (!token) {
@@ -1434,6 +1437,11 @@ function App() {
   }
 
   function openSupplierModal(product: OzonProduct) {
+    if (product.productType !== 'Purchase') {
+      setOzonStatus('Поставщика можно добавить только к закупочному товару')
+      return
+    }
+
     setSupplierModalProduct(product)
     setSupplierDrafts(
       (productSupplierLinks[product.productId] ?? []).map((item) => ({
@@ -1511,6 +1519,35 @@ function App() {
       return next
     })
     setOzonStatus('Поставщики товара удалены')
+  }
+
+  async function updateProductType(product: OzonProduct, productType: ProductType) {
+    if (!productType) {
+      return
+    }
+
+    const response = await fetch(`/api/product-settings/${product.productId}/type`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        offerId: product.offerId,
+        productName: product.name,
+        productType,
+      }),
+    })
+
+    if (!response.ok) {
+      setOzonStatus(getApiErrorMessage(await response.text(), 'Не удалось сохранить тип товара'))
+      return
+    }
+
+    setOzonProducts((current) =>
+      current.map((item) => (item.productId === product.productId ? { ...item, productType } : item)),
+    )
+    setOzonStatus('Тип товара сохранен')
   }
 
   async function loadOzonStocks() {
@@ -1638,7 +1675,9 @@ function App() {
 
     const stocksData: OzonStock[] = await stocksResponse.json()
     const analyticsData: OzonAnalytics = await analyticsResponse.json()
-    const urgentItems = getUrgentStockItems(stocksData, analyticsData)
+    const urgentItems = getUrgentStockItems(stocksData, analyticsData).filter((item) =>
+      purchaseProducts.some((product) => product.productId === item.productId),
+    )
 
     setOzonStocks(stocksData)
     setAnalytics(analyticsData)
@@ -1866,7 +1905,7 @@ function App() {
   }
 
   function addDraftTaskItem() {
-    const product = ozonProducts.find((item) => String(item.productId) === selectedTaskProductId)
+    const product = productionProducts.find((item) => String(item.productId) === selectedTaskProductId)
     const quantity = Number(taskQuantity)
 
     if (!product || !Number.isFinite(quantity) || quantity <= 0) {
@@ -2072,26 +2111,8 @@ function App() {
     setSupplyAnalytics(data)
   }
 
-  async function loadOzonSupplyOrders() {
-    setOzonSupplyStatus('Загружаем поставки со склада Ozon...')
-    const response = await fetch('/api/ozon/supply-orders', {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-
-    if (!response.ok) {
-      setOzonSupplyStatus(getApiErrorMessage(await response.text(), 'Не удалось получить поставки Ozon'))
-      return
-    }
-
-    const data: OzonSupplyOrder[] = await response.json()
-    setOzonSupplyOrders(data)
-    setOzonSupplyStatus(data.length ? `Поставок Ozon: ${data.length}` : 'Активных поставок Ozon не найдено')
-  }
-
   function addSupplyProduct() {
-    const product = ozonProducts.find((item) => String(item.productId) === supplyProductId)
+    const product = purchaseProducts.find((item) => String(item.productId) === supplyProductId)
     const quantity = Number(supplyQuantity)
 
     if (!product || !Number.isFinite(quantity) || quantity <= 0) {
@@ -2337,7 +2358,7 @@ function App() {
   }
 
   function addEditSupplyProduct() {
-    const product = ozonProducts.find((item) => String(item.productId) === editSupplyProductId)
+    const product = purchaseProducts.find((item) => String(item.productId) === editSupplyProductId)
     const quantity = Number(editSupplyQuantity)
 
     if (!product || !Number.isFinite(quantity) || quantity <= 0) {
@@ -2830,6 +2851,119 @@ function App() {
 
       <div className="app-content">
         <section className="workspace">
+          {activeTab === 'dashboard' && (
+            <section className="dashboard-page">
+              <div className="section-title">
+                <h2>Главная</h2>
+                <p>Сводка по товарам, производству, поставкам и продажам</p>
+              </div>
+
+              <div className="dashboard-grid">
+                <article className="dashboard-card dashboard-card-wide attention-card">
+                  <div className="dashboard-card-head">
+                    <span>
+                      <strong>Требует внимания</strong>
+                      <small>Самые срочные действия</small>
+                    </span>
+                  </div>
+                  <div className="attention-list">
+                    <span><b>{urgentPurchaseItems.length}</b><small>срочно закупить</small></span>
+                    <span><b>{urgentProductionItems.length}</b><small>произвести</small></span>
+                    <span><b>{urgentStockItems.length}</b><small>скоро закончится</small></span>
+                    <span><b>{unsetProducts.length}</b><small>без типа</small></span>
+                  </div>
+                  <div className="dashboard-actions">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('production')
+                        setProductionSubTab('tasks')
+                        setShowCreateTaskModal(true)
+                      }}
+                    >
+                      Создать производство
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('supplies')
+                        setSupplySubTab('create')
+                        setShowCreateSupplyModal(true)
+                      }}
+                    >
+                      Создать заказ
+                    </button>
+                  </div>
+                </article>
+
+                <article className="dashboard-card">
+                  <div className="dashboard-card-head">
+                    <span><strong>Производство</strong><small>Задачи по товарам</small></span>
+                  </div>
+                  <div className="metric-list">
+                    <span><b>{allNewProductionTasks.length}</b><small>новые</small></span>
+                    <span><b>{allInProgressProductionTasks.length}</b><small>в работе</small></span>
+                    <span><b>{completedProductionTasks.length}</b><small>готово</small></span>
+                  </div>
+                  <button type="button" onClick={() => setActiveTab('production')}>Открыть производство</button>
+                </article>
+
+                <article className="dashboard-card">
+                  <div className="dashboard-card-head">
+                    <span><strong>Поставки</strong><small>Заказы и приемка</small></span>
+                  </div>
+                  <div className="metric-list">
+                    <span><b>{createdSupplies.length}</b><small>создано</small></span>
+                    <span><b>{activeSupplies.filter((item) => item.status === 'Sent').length}</b><small>в пути</small></span>
+                    <span><b>{activeSupplies.filter((item) => item.status === 'Accepted').length}</b><small>принято</small></span>
+                  </div>
+                  <button type="button" onClick={() => setActiveTab('supplies')}>Открыть поставки</button>
+                </article>
+
+                <article className="dashboard-card dashboard-card-wide">
+                  <div className="dashboard-card-head">
+                    <span><strong>График</strong><small>Последние 30 дней</small></span>
+                    <button type="button" onClick={loadAnalytics}>Обновить</button>
+                  </div>
+                  <div className="chart-summary">
+                    <span><b>{analytics?.orderedUnitsTotal ?? 0}</b><small>продано, шт.</small></span>
+                    <span><b>{analytics ? formatMoney(analytics.revenueTotal) : '-'}</b><small>выручка</small></span>
+                  </div>
+                  <div className="mini-bars" aria-label="График продаж">
+                    {topAnalyticsProducts.slice(0, 12).map((row) => (
+                      <span
+                        key={row.key}
+                        title={row.productName}
+                        style={{ height: `${Math.max(18, Math.min(100, row.quantity * 8))}%` }}
+                      />
+                    ))}
+                  </div>
+                </article>
+
+                <article className="dashboard-card">
+                  <div className="dashboard-card-head">
+                    <span><strong>Новое</strong><small>Товары без типа</small></span>
+                  </div>
+                  <div className="new-products-list">
+                    {unsetProducts.slice(0, 5).map((item) => (
+                      <span key={item.productId}><b>{item.offerId}</b><small>{item.name}</small></span>
+                    ))}
+                    {unsetProducts.length === 0 && <small>Все товары распределены.</small>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('products')
+                      setProductsSubTab('settings')
+                    }}
+                  >
+                    Настроить товары
+                  </button>
+                </article>
+              </div>
+            </section>
+          )}
+
           {activeTab === 'production' && (
             <section className="tab-panel">
               <div className="section-title">
@@ -2948,7 +3082,7 @@ function App() {
                   <span>Файлы</span>
                   <span>Действия</span>
                 </div>
-                    {filteredOzonProducts.map((item) => {
+                    {filteredProductionProducts.map((item) => {
                       const isSelected = selectedProductionProductId === item.productId
                       const itemFiles = productionFiles.filter(
                         (file) =>
@@ -3040,7 +3174,7 @@ function App() {
                         <div className="task-form task-form-modal">
                           <ProductSearchInput
                             listId="task-products"
-                            products={ozonProducts}
+                            products={productionProducts}
                             supplierLinks={productSupplierLinks}
                             selectedProductId={selectedTaskProductId}
                             onProductIdChange={setSelectedTaskProductId}
@@ -3178,6 +3312,31 @@ function App() {
                 )}
               </div>
 
+              <div className="inner-tabs">
+                <button
+                  type="button"
+                  className={productsSubTab === 'settings' ? 'active' : ''}
+                  onClick={() => setProductsSubTab('settings')}
+                >
+                  Настройка товаров
+                  {unsetProducts.length > 0 && <span className="tab-badge">{unsetProducts.length}</span>}
+                </button>
+                <button
+                  type="button"
+                  className={productsSubTab === 'production' ? 'active' : ''}
+                  onClick={() => setProductsSubTab('production')}
+                >
+                  Производственные
+                </button>
+                <button
+                  type="button"
+                  className={productsSubTab === 'purchase' ? 'active' : ''}
+                  onClick={() => setProductsSubTab('purchase')}
+                >
+                  Закупочные
+                </button>
+              </div>
+
               {ozonStatus && (
                 <div className="ozon-status">
                   <strong>{ozonStatus}</strong>
@@ -3198,7 +3357,7 @@ function App() {
                   <span>Ссылка на Ozon</span>
                   <span>Поставщик</span>
                 </div>
-                {ozonProducts.map((item) => (
+                {productsBySubTab.map((item) => (
                   <div className="table-row ozon-product-row" key={item.productId}>
                     <span>
                       <strong>{item.name}</strong>
@@ -3223,7 +3382,18 @@ function App() {
                       )}
                     </span>
                     <span>
-                      {(productSupplierLinks[item.productId] ?? []).length > 0 ? (
+                      {productsSubTab === 'settings' ? (
+                        <span className="product-type-actions">
+                          <button type="button" onClick={() => updateProductType(item, 'Production')}>
+                            Производственный
+                          </button>
+                          <button type="button" onClick={() => updateProductType(item, 'Purchase')}>
+                            Закупочный
+                          </button>
+                        </span>
+                      ) : item.productType !== 'Purchase' ? (
+                        <span className="muted-text">Поставщик только для закупочных</span>
+                      ) : (productSupplierLinks[item.productId] ?? []).length > 0 ? (
                         <span className="supplier-link-actions">
                           <button type="button" onClick={() => openSupplierModal(item)}>
                             Поставщики: {(productSupplierLinks[item.productId] ?? []).length}
@@ -3240,6 +3410,15 @@ function App() {
                     </span>
                   </div>
                 ))}
+                {productsBySubTab.length === 0 && (
+                  <div className="empty-state">
+                    <strong>
+                      {productsSubTab === 'settings'
+                        ? 'Все товары уже настроены.'
+                        : 'В этой подкладке пока нет товаров.'}
+                    </strong>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -3518,14 +3697,6 @@ function App() {
                   Аналитика по товару
                 </button>
                 )}
-                <button
-                  type="button"
-                  className={supplySubTab === 'ozon' ? 'active' : ''}
-                  onClick={() => setSupplySubTab('ozon')}
-                  hidden={!hasSubFeature('supplies.ozon', 'supplies')}
-                >
-                  Поставки
-                </button>
               </div>
 
               <div className="toolbar-row">
@@ -3551,42 +3722,6 @@ function App() {
                 )}
               </div>
 
-              {supplySubTab === 'ozon' && (
-                <>
-                  <div className="supply-filter">
-                    <p>{ozonSupplyStatus || 'Поставки из Ozon'}</p>
-                    <button type="button" onClick={loadOzonSupplyOrders}>
-                      Обновить из Ozon
-                    </button>
-                  </div>
-                  <div className="data-table">
-                    <div className="table-row ozon-supply-row table-head">
-                      <span>Номер заявки</span>
-                      <span>Статус</span>
-                      <span>Кластер / точка</span>
-                      <span>SKU / количество</span>
-                      <span>Дата отгрузки</span>
-                      <span>Дата завершения</span>
-                    </div>
-                    {ozonSupplyOrders.map((order) => (
-                      <div className="table-row ozon-supply-row" key={order.id || `${order.createdAt}-${order.status}`}>
-                        <strong>{order.id || '-'}</strong>
-                        <span>{translateOzonSupplyStatus(order.status)}</span>
-                        <span>{order.warehouseName || '-'}</span>
-                        <span>{order.itemsCount || '-'}</span>
-                        <span>{formatOzonDate(order.createdAt)}</span>
-                        <span>{formatOzonDate(order.updatedAt)}</span>
-                      </div>
-                    ))}
-                    {ozonSupplyOrders.length === 0 && (
-                      <div className="empty-state">
-                        <strong>Поставок Ozon пока нет.</strong>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
               {supplySubTab === 'create' && (
                 <>
                   <div className="supply-create-bar">
@@ -3608,26 +3743,7 @@ function App() {
                       </button>
                       </>
                     )}
-                      <button type="button" onClick={() => setShowSupplyHelp(true)}>
-                        Справка создать поставку
-                      </button>
                   </div>
-
-                  {showSupplyHelp && (
-                    <div className="modal-backdrop" role="presentation">
-                      <div className="modal-card" role="dialog" aria-modal="true">
-                        <h3>Создание поставки</h3>
-                        <p>
-                          Добавьте товары из списка Ozon или резервные товары, если товара еще
-                          нет в продаже. После сохранения поставка появится в статусе "Создано";
-                          статус "Отправлено" ставится отдельно.
-                        </p>
-                        <button type="button" onClick={() => setShowSupplyHelp(false)}>
-                          Понятно
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {showCreateSupplyModal && (
                     <div className="modal-backdrop" role="presentation">
@@ -3647,7 +3763,7 @@ function App() {
                             <strong>Товар из Ozon</strong>
                             <ProductSearchInput
                               listId="supply-products"
-                              products={ozonProducts}
+                              products={purchaseProducts}
                               supplierLinks={productSupplierLinks}
                               selectedProductId={supplyProductId}
                               onProductIdChange={setSupplyProductId}
@@ -5099,6 +5215,7 @@ function SupplyTable({
   archiveMode?: boolean
 }) {
   const [expandedArchiveSupplyIds, setExpandedArchiveSupplyIds] = useState<Record<string, boolean>>({})
+  const purchaseProducts = ozonProducts.filter((item) => item.productType === 'Purchase')
 
   return (
     <div className="supply-list">
@@ -5221,7 +5338,7 @@ function SupplyTable({
                   <strong>Добавить товар из Ozon</strong>
                   <ProductSearchInput
                     listId={`edit-supply-products-${supply.id}`}
-                    products={ozonProducts}
+                    products={purchaseProducts}
                     supplierLinks={productSupplierLinks}
                     selectedProductId={editSupplyProductId}
                     onProductIdChange={setEditSupplyProductId}
@@ -5416,7 +5533,7 @@ function SupplyTable({
                             <>
                               <ProductSearchInput
                                 listId={`edit-replace-products-${item.tempId}`}
-                                products={ozonProducts}
+                                products={purchaseProducts}
                                 supplierLinks={productSupplierLinks}
                                 selectedProductId={replaceProducts[item.tempId] ?? ''}
                                 onProductIdChange={(productId) =>
@@ -5430,7 +5547,7 @@ function SupplyTable({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const product = ozonProducts.find(
+                                  const product = purchaseProducts.find(
                                     (product) =>
                                       String(product.productId) === replaceProducts[item.tempId],
                                   )
@@ -5763,26 +5880,6 @@ function translateSupplyStatus(status: SupplyStatus) {
   return statuses[status] ?? status
 }
 
-function translateOzonSupplyStatus(status?: string) {
-  if (!status) {
-    return '-'
-  }
-
-  const statuses: Record<string, string> = {
-    completed: 'Завершено',
-    complete: 'Завершено',
-    accepted: 'Принято',
-    created: 'Создано',
-    new: 'Создано',
-    in_progress: 'В работе',
-    processing: 'В работе',
-    canceled: 'Отменено',
-    cancelled: 'Отменено',
-  }
-
-  return statuses[status.toLowerCase()] ?? status
-}
-
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString('ru-RU', {
     day: '2-digit',
@@ -5791,15 +5888,6 @@ function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-function formatOzonDate(value?: string) {
-  if (!value) {
-    return '-'
-  }
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : formatDateTime(value)
 }
 
 function getRemainingDays(value?: string) {

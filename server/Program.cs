@@ -1117,13 +1117,71 @@ app.MapGet("/api/ozon/products", async (
     {
         await CompanyAccess.UseCompanyOzonCredentialsAsync(db, principal, dataProtectionProvider, options.Value, ozonApi);
         var result = await ozonApi.GetProductSummariesAsync(100, cancellationToken);
-        return Results.Ok(result);
+        var companyId = CompanyAccess.GetCompanyId(principal);
+        var settings = await ProductSettingSync.EnsureAsync(db, companyId, result, cancellationToken);
+        return Results.Ok(result.Select(product =>
+        {
+            settings.TryGetValue(product.ProductId, out var setting);
+            return new OzonProductListItemResponse(
+                product.ProductId,
+                product.OfferId,
+                product.Sku,
+                product.Name,
+                product.Price,
+                product.OldPrice,
+                product.MinPrice,
+                product.CurrencyCode,
+                product.Status,
+                product.ProductUrl,
+                product.ImageUrl,
+                setting?.ProductType ?? ProductTypes.Unset);
+        }).ToList());
     }
     catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
     {
         return Results.Problem(exception.Message);
     }
 }).RequireAuthorization();
+
+app.MapPut("/api/product-settings/{ozonProductId:long}/type", async (
+    long ozonProductId,
+    UpdateProductTypeRequest request,
+    AppDbContext db,
+    ClaimsPrincipal principal) =>
+{
+    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Products))
+    {
+        return Results.Forbid();
+    }
+
+    if (request.ProductType is not (ProductTypes.Production or ProductTypes.Purchase))
+    {
+        return Results.BadRequest("Выберите тип товара: производственный или закупочный.");
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var setting = await db.ProductSettings.SingleOrDefaultAsync(item =>
+        item.CompanyId == companyId && item.OzonProductId == ozonProductId);
+    if (setting is null)
+    {
+        setting = new ProductSetting
+        {
+            CompanyId = companyId,
+            OzonProductId = ozonProductId,
+            OfferId = request.OfferId.Trim(),
+            ProductName = request.ProductName.Trim()
+        };
+        db.ProductSettings.Add(setting);
+    }
+
+    setting.OfferId = request.OfferId.Trim();
+    setting.ProductName = request.ProductName.Trim();
+    setting.ProductType = request.ProductType;
+    setting.UpdatedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new ProductSettingResponse(setting.OzonProductId, setting.OfferId, setting.ProductName, setting.ProductType));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
 app.MapGet("/api/product-supplier-links", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -1154,6 +1212,11 @@ app.MapPut("/api/product-supplier-links/{ozonProductId:long}", async (
     }
 
     var companyId = CompanyAccess.GetCompanyId(principal);
+    if (!await ProductSettingSync.HasTypeAsync(db, companyId, ozonProductId, ProductTypes.Purchase))
+    {
+        return Results.BadRequest("Ссылку поставщика можно добавить только к закупочному товару.");
+    }
+
     if (request.Suppliers.Count > 20)
     {
         return Results.BadRequest("Для одного товара можно добавить не больше 20 поставщиков.");
@@ -1301,31 +1364,6 @@ app.MapGet("/api/ozon/analytics", async (
     }
 }).RequireAuthorization();
 
-app.MapGet("/api/ozon/supply-orders", async (
-    OzonApiClient ozonApi,
-    Microsoft.Extensions.Options.IOptions<OzonOptions> options,
-    AppDbContext db,
-    ClaimsPrincipal principal,
-    IDataProtectionProvider dataProtectionProvider,
-    CancellationToken cancellationToken) =>
-{
-    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Supplies))
-    {
-        return Results.Forbid();
-    }
-
-    try
-    {
-        await CompanyAccess.UseCompanyOzonCredentialsAsync(db, principal, dataProtectionProvider, options.Value, ozonApi);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        return Results.Ok(await ozonApi.GetSupplyOrdersAsync(today.AddDays(-60), today, cancellationToken));
-    }
-    catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
-    {
-        return Results.Problem(exception.Message);
-    }
-}).RequireAuthorization();
-
 app.MapGet("/api/production/files", async (string? search, AppDbContext db, ClaimsPrincipal principal) =>
 {
     if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Production))
@@ -1363,6 +1401,7 @@ app.MapGet("/api/production/files", async (string? search, AppDbContext db, Clai
 app.MapPost("/api/production/files", async (
     HttpRequest request,
     AppDbContext db,
+    ClaimsPrincipal principal,
     CancellationToken cancellationToken) =>
 {
     if (!request.HasFormContentType)
@@ -1378,13 +1417,20 @@ app.MapPost("/api/production/files", async (
         return Results.BadRequest("Файл обязателен.");
     }
 
+    var ozonProductId = long.TryParse(form["ozonProductId"], out var productId) ? productId : (long?)null;
+    if (!ozonProductId.HasValue
+        || !await ProductSettingSync.HasTypeAsync(db, CompanyAccess.GetCompanyId(principal), ozonProductId.Value, ProductTypes.Production))
+    {
+        return Results.BadRequest("Файлы производства можно добавлять только к производственным товарам.");
+    }
+
     await using var stream = file.OpenReadStream();
     using var memory = new MemoryStream();
     await stream.CopyToAsync(memory, cancellationToken);
 
     var productionFile = new ProductionFile
     {
-        OzonProductId = long.TryParse(form["ozonProductId"], out var productId) ? productId : null,
+        OzonProductId = ozonProductId,
         OfferId = form["offerId"].ToString().Trim(),
         ProductName = form["productName"].ToString().Trim(),
         Notes = form["notes"].ToString().Trim(),
@@ -1553,6 +1599,12 @@ app.MapPost("/api/production/tasks", async (
     if (requestItems.Any(item => item.OzonProductId <= 0 || item.RequiredQuantity <= 0))
     {
         return Results.BadRequest("Выберите товар и укажите количество больше нуля.");
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    if (!await ProductSettingSync.AllHaveTypeAsync(db, companyId, requestItems.Select(item => item.OzonProductId), ProductTypes.Production))
+    {
+        return Results.BadRequest("В производство можно добавить только товары с типом \"Производственный\".");
     }
 
     var firstItem = requestItems[0];
@@ -1873,8 +1925,15 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
         return Results.BadRequest("Для поставщика укажите и название, и ссылку.");
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var purchaseIds = supply.Items.Where(item => item.OzonProductId.HasValue).Select(item => item.OzonProductId!.Value);
+    if (!await ProductSettingSync.AllHaveTypeAsync(db, companyId, purchaseIds, ProductTypes.Purchase))
+    {
+        return Results.BadRequest("В поставку можно добавить только товары с типом \"Закупочный\".");
+    }
+
     db.Supplies.Add(supply);
-    await SupplierLinkSync.AddFromSupplyItemsAsync(db, CompanyAccess.GetCompanyId(principal), supply.Items);
+    await SupplierLinkSync.AddFromSupplyItemsAsync(db, companyId, supply.Items);
     AuditLogWriter.Add(db, principal, "Создание поставки", "Supply", supply.Id.ToString(), $"Товаров: {supply.Items.Count}");
     await db.SaveChangesAsync();
 
@@ -2071,9 +2130,16 @@ app.MapPut("/api/supplies/{id:guid}", async (
         return Results.BadRequest("Для поставщика укажите и название, и ссылку.");
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var purchaseIds = updatedItems.Where(item => item.OzonProductId.HasValue).Select(item => item.OzonProductId!.Value);
+    if (!await ProductSettingSync.AllHaveTypeAsync(db, companyId, purchaseIds, ProductTypes.Purchase))
+    {
+        return Results.BadRequest("В поставку можно добавить только товары с типом \"Закупочный\".");
+    }
+
     db.SupplyItems.RemoveRange(supply.Items);
     db.SupplyItems.AddRange(updatedItems);
-    await SupplierLinkSync.AddFromSupplyItemsAsync(db, CompanyAccess.GetCompanyId(principal), updatedItems);
+    await SupplierLinkSync.AddFromSupplyItemsAsync(db, companyId, updatedItems);
     AuditLogWriter.Add(db, principal, "Редактирование поставки", "Supply", supply.Id.ToString(), $"Товаров: {updatedItems.Count}");
     await db.SaveChangesAsync();
 
@@ -2551,6 +2617,21 @@ record SystemHealthResponse(
     string DotnetVersion);
 record BackupFileResponse(string FileName, long SizeBytes, DateTimeOffset CreatedAt);
 record BillingCheckoutResponse(string ConfirmationUrl, string PaymentId);
+record OzonProductListItemResponse(
+    long ProductId,
+    string OfferId,
+    long? Sku,
+    string Name,
+    decimal Price,
+    decimal OldPrice,
+    decimal MinPrice,
+    string CurrencyCode,
+    string Status,
+    string ProductUrl,
+    string ImageUrl,
+    string ProductType);
+record ProductSettingResponse(long OzonProductId, string OfferId, string ProductName, string ProductType);
+record UpdateProductTypeRequest(string OfferId, string ProductName, string ProductType);
 record ProductSupplierLinkResponse(Guid Id, long OzonProductId, string OfferId, string SupplierName, string SupplierUrl);
 record UpdateProductSupplierLinksRequest(string OfferId, List<UpdateProductSupplierLinkRequest> Suppliers);
 record UpdateProductSupplierLinkRequest(string SupplierName, string SupplierUrl);
@@ -2564,6 +2645,73 @@ record OzonIntegrationStatusResponse(
     string ApiKeyMasked,
     DateTimeOffset CheckedAt);
 record OzonCredentials(string ClientId, string ApiKey);
+
+static class ProductSettingSync
+{
+    public static async Task<Dictionary<long, ProductSetting>> EnsureAsync(
+        AppDbContext db,
+        Guid companyId,
+        IEnumerable<OzonProductSummary> products,
+        CancellationToken cancellationToken)
+    {
+        var productList = products.ToList();
+        var productIds = productList.Select(item => item.ProductId).ToList();
+        var settings = await db.ProductSettings
+            .Where(item => item.CompanyId == companyId && productIds.Contains(item.OzonProductId))
+            .ToDictionaryAsync(item => item.OzonProductId, cancellationToken);
+
+        foreach (var product in productList)
+        {
+            if (settings.TryGetValue(product.ProductId, out var setting))
+            {
+                setting.OfferId = product.OfferId;
+                setting.ProductName = product.Name;
+                continue;
+            }
+
+            setting = new ProductSetting
+            {
+                CompanyId = companyId,
+                OzonProductId = product.ProductId,
+                OfferId = product.OfferId,
+                ProductName = product.Name,
+                ProductType = ProductTypes.Unset
+            };
+            db.ProductSettings.Add(setting);
+            settings[product.ProductId] = setting;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return settings;
+    }
+
+    public static async Task<bool> HasTypeAsync(AppDbContext db, Guid companyId, long productId, string productType)
+    {
+        return await db.ProductSettings.AnyAsync(item =>
+            item.CompanyId == companyId
+            && item.OzonProductId == productId
+            && item.ProductType == productType);
+    }
+
+    public static async Task<bool> AllHaveTypeAsync(
+        AppDbContext db,
+        Guid companyId,
+        IEnumerable<long> productIds,
+        string productType)
+    {
+        var ids = productIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return true;
+        }
+
+        var count = await db.ProductSettings.CountAsync(item =>
+            item.CompanyId == companyId
+            && ids.Contains(item.OzonProductId)
+            && item.ProductType == productType);
+        return count == ids.Count;
+    }
+}
 
 static class SupplierLinkSync
 {

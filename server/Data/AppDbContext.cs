@@ -8,6 +8,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Company> Companies => Set<Company>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<ProductionFile> ProductionFiles => Set<ProductionFile>();
+    public DbSet<ProductSetting> ProductSettings => Set<ProductSetting>();
     public DbSet<ProductSupplierLink> ProductSupplierLinks => Set<ProductSupplierLink>();
     public DbSet<ProductionTask> ProductionTasks => Set<ProductionTask>();
     public DbSet<ProductionTaskItem> ProductionTaskItems => Set<ProductionTaskItem>();
@@ -52,6 +53,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(file => file.ProductName).HasMaxLength(240);
             entity.Property(file => file.FileName).HasMaxLength(260);
             entity.Property(file => file.ContentType).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<ProductSetting>(entity =>
+        {
+            entity.HasIndex(item => new { item.CompanyId, item.OzonProductId }).IsUnique();
+            entity.Property(item => item.OfferId).HasMaxLength(120);
+            entity.Property(item => item.ProductName).HasMaxLength(240);
+            entity.Property(item => item.ProductType).HasMaxLength(32);
+            entity.HasOne(item => item.Company)
+                .WithMany()
+                .HasForeignKey(item => item.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ProductSupplierLink>(entity =>
