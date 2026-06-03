@@ -1521,7 +1521,13 @@ function App() {
       return
     }
 
-    setPriceStatus(result.message || `Цена для ${item.offerId} успешно отправлена в Ozon`)
+    setUrgentStockStatus('')
+    setStockStatus('')
+    setPriceStatus(result.message || `Цена для ${item.offerId} успешно обновлена в Ozon`)
+    setEditingPrices((current) => ({
+      ...current,
+      [item.productId]: String(price),
+    }))
     setOzonStocks((current) =>
       current.map((stock) => (stock.productId === item.productId ? { ...stock, price } : stock)),
     )
@@ -3872,6 +3878,7 @@ function App() {
                 <article className="settings-card">
                   <span>Компания</span>
                   <strong>{user.companyName || 'Компания'}</strong>
+                  <small>ID компании: {user.companyId}</small>
                   <small>Сотрудники и интеграции привязаны к этой компании.</small>
                 </article>
 
@@ -4023,6 +4030,7 @@ function App() {
                         </span>
                         <span>
                           <strong>{item.displayName || item.userName}</strong>
+                          <small>ID сотрудника: {item.id}</small>
                           <small>Логин: {item.userName}</small>
                           <small>{item.position || 'Должность не указана'}</small>
                         </span>
@@ -4050,7 +4058,7 @@ function App() {
                       Удалить
                     </button>
                     <details className="user-settings-panel">
-                      <summary>Настройки пользователя</summary>
+                      <summary>Настройки пользователя · ID: {item.id}</summary>
                       <div className="user-settings-grid">
                         <label>
                           <span>Имя</span>
@@ -4580,7 +4588,7 @@ function ProductionTaskTable({
                 В работу
               </button>
             )}
-            {!completed && (
+            {!completed && task.status === 'InProgress' && (
               <button type="button" onClick={(event) => {
                 event.preventDefault()
                 onComplete(task.id)

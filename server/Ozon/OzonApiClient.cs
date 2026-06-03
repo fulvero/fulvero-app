@@ -331,7 +331,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             var lastFlow = flows.LastOrDefault();
             if (lastFlow.ValueKind == JsonValueKind.Undefined)
             {
-                return new OzonAccountBalance(0, string.Empty);
+                return await GetFinanceTransactionTotalsBalanceAsync(dateFrom, dateTo, cancellationToken);
             }
 
             var details = TryGetArray(lastFlow, "details") ?? [];
@@ -343,9 +343,58 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
                 currencyCode = GetString(lastFlow, "currency_code", "currency", "currencyCode");
             }
 
-            return new OzonAccountBalance(
-                GetFirstDecimal(source, "end_balance_amount", "end_balance", "balance", "amount", "outgoing_balance", "closing_balance"),
-                currencyCode);
+            var balance = GetFirstDecimal(source, "end_balance_amount", "end_balance", "balance", "amount", "outgoing_balance", "closing_balance");
+            return balance == 0
+                ? await GetFinanceTransactionTotalsBalanceAsync(dateFrom, dateTo, cancellationToken)
+                : new OzonAccountBalance(balance, currencyCode);
+        }
+        catch
+        {
+            return new OzonAccountBalance(0, string.Empty);
+        }
+    }
+
+    private async Task<OzonAccountBalance> GetFinanceTransactionTotalsBalanceAsync(
+        DateOnly dateFrom,
+        DateOnly dateTo,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/v3/finance/transaction/totals");
+            AddAuthHeaders(request);
+            request.Content = JsonContent.Create(new OzonFinanceTransactionTotalsRequest(
+                new OzonFinanceDateRange(
+                    $"{dateFrom:yyyy-MM-dd}T00:00:00.000Z",
+                    $"{dateTo:yyyy-MM-dd}T23:59:59.000Z"),
+                string.Empty,
+                "all"));
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new OzonAccountBalance(0, string.Empty);
+            }
+
+            var data = JsonSerializer.Deserialize<JsonElement>(content, JsonOptions);
+            if (data.ValueKind != JsonValueKind.Object
+                || !data.TryGetProperty("result", out var result)
+                || result.ValueKind != JsonValueKind.Object)
+            {
+                return new OzonAccountBalance(0, string.Empty);
+            }
+
+            var total = GetDecimal(result, "accruals_for_sale")
+                + GetDecimal(result, "compensation_amount")
+                + GetDecimal(result, "money_transfer")
+                + GetDecimal(result, "others_amount")
+                + GetDecimal(result, "processing_and_delivery")
+                + GetDecimal(result, "refunds_and_cancellations")
+                + GetDecimal(result, "sale_commission")
+                + GetDecimal(result, "services_amount");
+
+            return new OzonAccountBalance(total, string.Empty);
         }
         catch
         {
@@ -887,6 +936,11 @@ public record OzonFinanceTransactionRequest(
     [property: JsonPropertyName("filter")] OzonFinanceFilter Filter,
     [property: JsonPropertyName("page")] int Page,
     [property: JsonPropertyName("page_size")] int PageSize);
+
+public record OzonFinanceTransactionTotalsRequest(
+    [property: JsonPropertyName("date")] OzonFinanceDateRange Date,
+    [property: JsonPropertyName("posting_number")] string PostingNumber,
+    [property: JsonPropertyName("transaction_type")] string TransactionType);
 
 public record OzonFinanceFilter(
     [property: JsonPropertyName("date")] OzonFinanceDateRange Date,
