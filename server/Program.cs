@@ -1174,6 +1174,29 @@ app.MapPut("/api/product-supplier-links/{ozonProductId:long}", async (
     return Results.Ok(new ProductSupplierLinkResponse(link.OzonProductId, link.OfferId, link.SupplierUrl));
 }).RequireAuthorization();
 
+app.MapDelete("/api/product-supplier-links/{ozonProductId:long}", async (
+    long ozonProductId,
+    AppDbContext db,
+    ClaimsPrincipal principal) =>
+{
+    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Products, FeatureAccess.Supplies, FeatureAccess.Production))
+    {
+        return Results.Forbid();
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var link = await db.ProductSupplierLinks.FirstOrDefaultAsync(item =>
+        item.CompanyId == companyId && item.OzonProductId == ozonProductId);
+    if (link is null)
+    {
+        return Results.NotFound();
+    }
+
+    db.ProductSupplierLinks.Remove(link);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization();
+
 app.MapGet("/api/ozon/stocks", async (
     OzonApiClient ozonApi,
     Microsoft.Extensions.Options.IOptions<OzonOptions> options,

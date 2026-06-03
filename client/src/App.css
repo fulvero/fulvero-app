@@ -966,6 +966,22 @@
   grid-template-columns: minmax(260px, 2fr) minmax(120px, 0.7fr) minmax(100px, 0.6fr) minmax(110px, 0.6fr) minmax(130px, 0.7fr) minmax(140px, 0.7fr);
 }
 
+.supplier-link-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tiny-danger {
+  border: 1px solid #fecaca !important;
+  border-radius: 999px !important;
+  padding: 5px 8px !important;
+  color: #b42318 !important;
+  background: #fff5f5 !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
 .production-product-row {
   grid-template-columns: minmax(320px, 2fr) minmax(130px, 0.8fr) minmax(220px, 1fr) minmax(110px, 0.6fr) minmax(110px, 0.6fr);
 }
@@ -1843,7 +1859,7 @@
 
 .users-list li {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(150px, 220px) auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(150px, 220px) minmax(150px, 220px) auto auto;
   align-items: center;
   gap: 12px;
   border: 1px solid #d9dee7;
@@ -1990,6 +2006,7 @@
 }
 
 .users-list button.danger {
+  grid-column: auto;
   justify-self: end;
   min-width: 92px;
   background: #b42318;

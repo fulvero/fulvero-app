@@ -1435,6 +1435,31 @@ function App() {
     setOzonStatus('Ссылка поставщика сохранена')
   }
 
+  async function deleteSupplierLink(product: OzonProduct) {
+    if (!window.confirm(`Удалить ссылку поставщика для ${product.offerId}?`)) {
+      return
+    }
+
+    const response = await fetch(`/api/product-supplier-links/${product.productId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok && response.status !== 404) {
+      setOzonStatus(getApiErrorMessage(await response.text(), 'Не удалось удалить ссылку поставщика'))
+      return
+    }
+
+    setProductSupplierLinks((current) => {
+      const next = { ...current }
+      delete next[product.productId]
+      return next
+    })
+    setOzonStatus('Ссылка поставщика удалена')
+  }
+
   async function loadOzonStocks() {
     setStockStatus('Загружаем остатки со склада Ozon...')
 
@@ -3029,9 +3054,14 @@ function App() {
                     </span>
                     <span>
                       {productSupplierLinks[item.productId] ? (
-                        <a href={productSupplierLinks[item.productId]} target="_blank" rel="noreferrer">
-                          Ссылка поставщика
-                        </a>
+                        <span className="supplier-link-actions">
+                          <a href={productSupplierLinks[item.productId]} target="_blank" rel="noreferrer">
+                            Ссылка поставщика
+                          </a>
+                          <button type="button" className="tiny-danger" onClick={() => deleteSupplierLink(item)}>
+                            Удалить
+                          </button>
+                        </span>
                       ) : (
                         <button type="button" onClick={() => saveSupplierLink(item)}>
                           Добавить ссылку
@@ -4121,6 +4151,16 @@ function App() {
               </div>
 
               <div className="settings-grid">
+                <div>
+                  <span>Тариф</span>
+                  <strong>{user.hasActiveSubscription ? 'Активен' : 'Нужна оплата'}</strong>
+                  <small>{getTrialRemainingText(user.trialEndsAt)}</small>
+                  <small>{getSubscriptionRemainingText(user.subscriptionPaidUntil)}</small>
+                  <button type="button" className="settings-card-action" onClick={startSubscriptionCheckout}>
+                    Продлить тариф
+                  </button>
+                  {billingStatus && <small>{billingStatus}</small>}
+                </div>
                 <div>
                   <span>Сервер</span>
                   <strong>{systemHealth ? 'Работает' : 'Проверка...'}</strong>
@@ -5462,6 +5502,37 @@ function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function getRemainingDays(value?: string) {
+  if (!value) {
+    return null
+  }
+
+  const diffMs = new Date(value).getTime() - Date.now()
+  if (!Number.isFinite(diffMs)) {
+    return null
+  }
+
+  return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)))
+}
+
+function getTrialRemainingText(value?: string) {
+  const days = getRemainingDays(value)
+  if (days === null) {
+    return 'Пробный период не задан'
+  }
+
+  return days > 0 ? `До конца пробного периода: ${days} дн.` : 'Пробный период закончился'
+}
+
+function getSubscriptionRemainingText(value?: string) {
+  const days = getRemainingDays(value)
+  if (days === null) {
+    return 'Оплаченной подписки пока нет'
+  }
+
+  return days > 0 ? `До конца оплаченного месяца: ${days} дн.` : 'Оплаченный месяц закончился'
 }
 
 export default App

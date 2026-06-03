@@ -310,6 +310,23 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             }
 
             var data = JsonSerializer.Deserialize<JsonElement>(content, JsonOptions);
+            var resultBalance = GetDecimal(data, "balance", "amount", "current_balance", "end_balance", "end_balance_amount");
+            if (resultBalance != 0)
+            {
+                return new OzonAccountBalance(resultBalance, GetString(data, "currency_code", "currency"));
+            }
+
+            if (data.ValueKind == JsonValueKind.Object
+                && data.TryGetProperty("result", out var result)
+                && result.ValueKind == JsonValueKind.Object)
+            {
+                var directBalance = GetDecimal(result, "balance", "amount", "current_balance", "end_balance", "end_balance_amount");
+                if (directBalance != 0)
+                {
+                    return new OzonAccountBalance(directBalance, GetString(result, "currency_code", "currency"));
+                }
+            }
+
             var flows = TryGetArray(data, "result", "cash_flows") ?? [];
             var lastFlow = flows.LastOrDefault();
             if (lastFlow.ValueKind == JsonValueKind.Undefined)
@@ -320,9 +337,15 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             var details = TryGetArray(lastFlow, "details") ?? [];
             var lastDetail = details.LastOrDefault();
             var source = lastDetail.ValueKind == JsonValueKind.Undefined ? lastFlow : lastDetail;
+            var currencyCode = GetString(source, "currency_code", "currency", "currencyCode");
+            if (string.IsNullOrWhiteSpace(currencyCode))
+            {
+                currencyCode = GetString(lastFlow, "currency_code", "currency", "currencyCode");
+            }
+
             return new OzonAccountBalance(
-                GetDecimal(source, "end_balance_amount"),
-                GetString(lastFlow, "currency_code"));
+                GetFirstDecimal(source, "end_balance_amount", "end_balance", "balance", "amount", "outgoing_balance", "closing_balance"),
+                currencyCode);
         }
         catch
         {
@@ -600,6 +623,30 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
     }
 
     private static decimal GetDecimal(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number))
+            {
+                return number;
+            }
+
+            if (value.ValueKind == JsonValueKind.String
+                && decimal.TryParse(value.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var textNumber))
+            {
+                return textNumber;
+            }
+        }
+
+        return 0;
+    }
+
+    private static decimal GetFirstDecimal(JsonElement element, params string[] names)
     {
         foreach (var name in names)
         {
