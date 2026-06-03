@@ -2281,38 +2281,6 @@ function App() {
     }
   }
 
-  async function replaceReserveItem(itemId: string) {
-    const product = ozonProducts.find((item) => String(item.productId) === replaceProducts[itemId])
-
-    if (!product) {
-      setSupplyStatus('Выберите постоянный товар для замены')
-      return
-    }
-
-    const response = await fetch(`/api/supplies/items/${itemId}/replace-reserve`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ozonProductId: product.productId,
-        offerId: product.offerId,
-        productName: product.name,
-      }),
-    })
-
-    if (!response.ok) {
-      setSupplyStatus('Не удалось заменить резервный товар')
-      return
-    }
-
-    setReplaceProducts((current) => ({ ...current, [itemId]: '' }))
-    setSupplyStatus('Резервный товар заменен на постоянный')
-    await loadSupplies()
-    await loadSupplyAnalytics()
-  }
-
   function startEditSupply(supply: Supply) {
     setEditingSupplyId(supply.id)
     setEditSupplyItems(
@@ -3214,13 +3182,8 @@ function App() {
                     <span>
                       {(productSupplierLinks[item.productId] ?? []).length > 0 ? (
                         <span className="supplier-link-actions">
-                          {(productSupplierLinks[item.productId] ?? []).map((link) => (
-                            <a href={link.supplierUrl} target="_blank" rel="noreferrer" key={link.id ?? link.supplierUrl}>
-                              {link.supplierName || 'Поставщик'}
-                            </a>
-                          ))}
                           <button type="button" onClick={() => openSupplierModal(item)}>
-                            Изменить
+                            Поставщики: {(productSupplierLinks[item.productId] ?? []).length}
                           </button>
                           <button type="button" className="tiny-danger" onClick={() => deleteSupplierLinks(item)}>
                             Удалить все
@@ -3752,7 +3715,6 @@ function App() {
                     supplyActualOrderEdits={supplyActualOrderEdits}
                     setSupplyActualOrderEdits={setSupplyActualOrderEdits}
                     onActualOrderChange={updateSupplyItemActualOrder}
-                  onReplaceReserve={replaceReserveItem}
                   userRole={user?.role}
                 />
                 </>
@@ -3787,7 +3749,6 @@ function App() {
                   supplyActualOrderEdits={supplyActualOrderEdits}
                   setSupplyActualOrderEdits={setSupplyActualOrderEdits}
                   onActualOrderChange={updateSupplyItemActualOrder}
-                  onReplaceReserve={replaceReserveItem}
                   userRole={user?.role}
                   hideItemsUntilEdit
                 />
@@ -3824,7 +3785,6 @@ function App() {
                   supplyActualOrderEdits={supplyActualOrderEdits}
                   setSupplyActualOrderEdits={setSupplyActualOrderEdits}
                   onActualOrderChange={updateSupplyItemActualOrder}
-                  onReplaceReserve={replaceReserveItem}
                   userRole={user?.role}
                   archiveMode
                   hideItemsUntilEdit
@@ -4181,6 +4141,8 @@ function App() {
 
               <div className="user-search-bar">
                 <input
+                  name="manual-user-search"
+                  autoComplete="off"
                   value={userSearch}
                   placeholder="Поиск по пользователям"
                   onChange={(event) => setUserSearch(event.target.value)}
@@ -5026,7 +4988,6 @@ function SupplyTable({
   supplyActualOrderEdits,
   setSupplyActualOrderEdits,
   onActualOrderChange,
-  onReplaceReserve,
   userRole,
   hideItemsUntilEdit = false,
   archiveMode = false,
@@ -5058,7 +5019,6 @@ function SupplyTable({
   supplyActualOrderEdits: Record<string, string>
   setSupplyActualOrderEdits: Dispatch<SetStateAction<Record<string, string>>>
   onActualOrderChange: (itemId: string, fallbackQuantity: number) => void
-  onReplaceReserve: (itemId: string) => void
   userRole?: string
   hideItemsUntilEdit?: boolean
   archiveMode?: boolean
@@ -5232,7 +5192,7 @@ function SupplyTable({
                   <span>Факт заказа</span>
                   <span>Поставщик</span>
                   <span>Тип</span>
-                  <span>{isEditing ? 'Действия' : 'Замена'}</span>
+                  <span>{isEditing ? 'Действия' : 'Статус заказа'}</span>
                 </div>
                 {rows.map((item) => (
                   <div className="table-row supply-item-row" key={isEditing ? item.tempId : item.id}>
@@ -5394,27 +5354,10 @@ function SupplyTable({
                             Удалить строку
                           </button>
                         </>
-                      ) : item.isReserve && userRole === 'Admin' ? (
-                        <>
-                          <ProductSearchInput
-                            listId={`replace-products-${item.id}`}
-                            products={ozonProducts}
-                            supplierLinks={productSupplierLinks}
-                            selectedProductId={replaceProducts[item.id ?? ''] ?? ''}
-                            onProductIdChange={(productId) =>
-                              setReplaceProducts((current) => ({
-                                ...current,
-                                [item.id ?? '']: productId,
-                              }))
-                            }
-                            placeholder="Найти постоянный товар"
-                          />
-                          <button type="button" onClick={() => item.id && onReplaceReserve(item.id)}>
-                            Заменить
-                          </button>
-                        </>
                       ) : (
-                        '-'
+                        <span className={`order-status-pill ${item.actualOrderQuantity > 0 ? 'is-ordered' : 'is-not-ordered'}`}>
+                          {item.actualOrderQuantity > 0 ? 'Заказано' : 'Не заказано'}
+                        </span>
                       )}
                     </span>
                   </div>
