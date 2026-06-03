@@ -269,7 +269,7 @@ const tabs = [
   { id: 'products', label: 'Товары' },
   { id: 'analytics', label: 'Аналитика' },
   { id: 'pooling', label: 'Склад' },
-  { id: 'supplies', label: 'Поставки OZON' },
+  { id: 'supplies', label: 'Поставки' },
   { id: 'integration', label: 'Интеграция', adminOnly: true },
   { id: 'chats', label: 'Чаты' },
   { id: 'users', label: 'Пользователи', adminOnly: true },
@@ -291,7 +291,7 @@ const featureGroups = [
     ],
   },
   {
-    title: 'Поставки OZON',
+    title: 'Поставки',
     items: [
       { id: 'supplies', label: 'Раздел' },
       { id: 'supplies.create', label: 'Создать поставку' },
@@ -299,7 +299,7 @@ const featureGroups = [
       { id: 'supplies.all', label: 'Все поставки' },
       { id: 'supplies.archive', label: 'Архив поставок' },
       { id: 'supplies.analytics', label: 'Аналитика по товару' },
-      { id: 'supplies.ozon', label: 'Поставки Ozon API' },
+      { id: 'supplies.ozon', label: 'Поставки' },
     ],
   },
   {
@@ -2730,7 +2730,7 @@ function App() {
                       <strong>{item.supplierName || 'Поставщик'}</strong>
                       {item.supplierUrl ? (
                         <a href={item.supplierUrl} target="_blank" rel="noreferrer">
-                          {item.supplierUrl}
+                          Открыть сайт
                         </a>
                       ) : (
                         <small>Ссылка не указана</small>
@@ -3214,8 +3214,13 @@ function App() {
                     <span>
                       {(productSupplierLinks[item.productId] ?? []).length > 0 ? (
                         <span className="supplier-link-actions">
+                          {(productSupplierLinks[item.productId] ?? []).map((link) => (
+                            <a href={link.supplierUrl} target="_blank" rel="noreferrer" key={link.id ?? link.supplierUrl}>
+                              {link.supplierName || 'Поставщик'}
+                            </a>
+                          ))}
                           <button type="button" onClick={() => openSupplierModal(item)}>
-                            Поставщики: {(productSupplierLinks[item.productId] ?? []).length}
+                            Изменить
                           </button>
                           <button type="button" className="tiny-danger" onClick={() => deleteSupplierLinks(item)}>
                             Удалить все
@@ -3455,7 +3460,7 @@ function App() {
             <section className="tab-panel">
               <div className="section-title">
                 <div>
-                  <h2>Поставки OZON</h2>
+                  <h2>Поставки</h2>
                   <p>{supplyStatus || 'Создание, статусы и аналитика поставок'}</p>
                 </div>
                 {user?.role === 'Admin' && (
@@ -3513,7 +3518,7 @@ function App() {
                   onClick={() => setSupplySubTab('ozon')}
                   hidden={!hasSubFeature('supplies.ozon', 'supplies')}
                 >
-                  Поставки Ozon API
+                  Поставки
                 </button>
               </div>
 
@@ -3543,7 +3548,7 @@ function App() {
               {supplySubTab === 'ozon' && (
                 <>
                   <div className="supply-filter">
-                    <p>{ozonSupplyStatus || 'Поставки на склад Ozon из API'}</p>
+                    <p>{ozonSupplyStatus || 'Поставки из Ozon'}</p>
                     <button type="button" onClick={loadOzonSupplyOrders}>
                       Обновить из Ozon
                     </button>
@@ -4088,10 +4093,12 @@ function App() {
                 <p>Добавляет только админ</p>
               </div>
 
-              <form className="user-form" onSubmit={createUser}>
+              <form className="user-form" onSubmit={createUser} autoComplete="off">
                 <label>
                   <span>Логин</span>
                   <input
+                    name="manual-user-login"
+                    autoComplete="off"
                     placeholder="Логин"
                     value={newUser.userName}
                     onChange={(event) => setNewUser({ ...newUser, userName: event.target.value })}
@@ -4101,6 +4108,8 @@ function App() {
                 <label>
                   <span>Имя</span>
                   <input
+                    name="manual-user-display"
+                    autoComplete="off"
                     placeholder="Имя"
                     value={newUser.displayName}
                     onChange={(event) => setNewUser({ ...newUser, displayName: event.target.value })}
@@ -4110,6 +4119,8 @@ function App() {
                 <label>
                   <span>Должность</span>
                   <input
+                    name="manual-user-position"
+                    autoComplete="off"
                     placeholder="Должность"
                     value={newUser.position}
                     onChange={(event) => setNewUser({ ...newUser, position: event.target.value })}
@@ -4118,6 +4129,8 @@ function App() {
                 <label>
                   <span>Пароль</span>
                   <input
+                    name="manual-user-secret"
+                    autoComplete="new-password"
                     placeholder="Пароль"
                     type="password"
                     value={newUser.password}
