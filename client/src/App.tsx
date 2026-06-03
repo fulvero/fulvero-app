@@ -2605,6 +2605,7 @@ function App() {
               </label>
               <span>
                 <strong>{user?.displayName || user?.userName}</strong>
+                <small>ID сотрудника: {user?.id}</small>
                 <small>{user?.position || 'Должность указывает администратор'}</small>
                 {profileAvatar && <small>Выбрано: {profileAvatar.name}</small>}
               </span>
