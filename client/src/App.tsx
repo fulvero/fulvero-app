@@ -154,6 +154,7 @@ type SupplierLinkDraft = {
   id?: string
   supplierName: string
   supplierUrl: string
+  isEditing?: boolean
 }
 
 type ProductionFile = {
@@ -413,6 +414,7 @@ function App() {
   const [profileAvatar, setProfileAvatar] = useState<File | null>(null)
   const [profileStatus, setProfileStatus] = useState('')
   const [chatUsers, setChatUsers] = useState<User[]>([])
+  const [userSearch, setUserSearch] = useState('')
   const [selectedChatUserId, setSelectedChatUserId] = useState('')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatText, setChatText] = useState('')
@@ -485,6 +487,14 @@ function App() {
           .some((value) => String(value).toLowerCase().includes(normalizedStockSearch)),
       )
     : ozonStocks
+  const normalizedUserSearch = userSearch.trim().toLowerCase()
+  const filteredUsers = normalizedUserSearch
+    ? users.filter((item) =>
+        [item.id, item.userName, item.displayName, item.position, item.role]
+          .filter((value) => value !== undefined && value !== null)
+          .some((value) => String(value).toLowerCase().includes(normalizedUserSearch)),
+      )
+    : users
   const topAnalyticsProducts = (analytics?.topProducts ?? [])
     .map((row) => ({
       ...row,
@@ -1423,6 +1433,7 @@ function App() {
         id: item.id,
         supplierName: item.supplierName,
         supplierUrl: item.supplierUrl,
+        isEditing: false,
       })),
     )
   }
@@ -1430,7 +1441,7 @@ function App() {
   function addSupplierDraft() {
     setSupplierDrafts((current) => [
       ...current,
-      { tempId: createTempId(), supplierName: '', supplierUrl: '' },
+      { tempId: createTempId(), supplierName: '', supplierUrl: '', isEditing: true },
     ])
   }
 
@@ -2679,38 +2690,67 @@ function App() {
             <div className="supplier-editor">
               {supplierDrafts.map((item) => (
                 <div className="supplier-editor-row" key={item.tempId}>
-                  <label>
-                    <span>Название поставщика</span>
-                    <input
-                      value={item.supplierName}
-                      placeholder="Например: ИП Иванов"
-                      onChange={(event) =>
+                  {item.isEditing ? (
+                    <>
+                      <label>
+                        <span>Название поставщика</span>
+                        <input
+                          value={item.supplierName}
+                          placeholder="Например: ИП Иванов"
+                          onChange={(event) =>
+                            setSupplierDrafts((current) =>
+                              current.map((row) =>
+                                row.tempId === item.tempId
+                                  ? { ...row, supplierName: event.target.value }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>Ссылка на заказ</span>
+                        <input
+                          value={item.supplierUrl}
+                          placeholder="https://..."
+                          onChange={(event) =>
+                            setSupplierDrafts((current) =>
+                              current.map((row) =>
+                                row.tempId === item.tempId
+                                  ? { ...row, supplierUrl: event.target.value }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <span className="supplier-saved-link">
+                      <strong>{item.supplierName || 'Поставщик'}</strong>
+                      {item.supplierUrl ? (
+                        <a href={item.supplierUrl} target="_blank" rel="noreferrer">
+                          {item.supplierUrl}
+                        </a>
+                      ) : (
+                        <small>Ссылка не указана</small>
+                      )}
+                    </span>
+                  )}
+                  {!item.isEditing && (
+                    <button
+                      type="button"
+                      onClick={() =>
                         setSupplierDrafts((current) =>
                           current.map((row) =>
-                            row.tempId === item.tempId
-                              ? { ...row, supplierName: event.target.value }
-                              : row,
+                            row.tempId === item.tempId ? { ...row, isEditing: true } : row,
                           ),
                         )
                       }
-                    />
-                  </label>
-                  <label>
-                    <span>Ссылка на заказ</span>
-                    <input
-                      value={item.supplierUrl}
-                      placeholder="https://..."
-                      onChange={(event) =>
-                        setSupplierDrafts((current) =>
-                          current.map((row) =>
-                            row.tempId === item.tempId
-                              ? { ...row, supplierUrl: event.target.value }
-                              : row,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
+                    >
+                      Изменить
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="tiny-danger"
@@ -4126,8 +4166,17 @@ function App() {
                 </details>
               </form>
 
+              <div className="user-search-bar">
+                <input
+                  value={userSearch}
+                  placeholder="Поиск по пользователям"
+                  onChange={(event) => setUserSearch(event.target.value)}
+                />
+                <span>Найдено: {filteredUsers.length}</span>
+              </div>
+
               <ul className="users-list">
-                {users.map((item) => {
+                {filteredUsers.map((item) => {
                   const edit = userSettingsEdits[item.id] ?? item
                   return (
                   <li key={item.id}>
@@ -4150,7 +4199,13 @@ function App() {
                     </span>
                     <b>{item.role}</b>
                     <span className="online-status">
-                      {item.lastSeenAt ? <small>Был: {formatDateTime(item.lastSeenAt)}</small> : <small>-</small>}
+                      {item.isOnline ? (
+                        <small>В сети</small>
+                      ) : item.lastSeenAt ? (
+                        <small>Был: {formatDateTime(item.lastSeenAt)}</small>
+                      ) : (
+                        <small>-</small>
+                      )}
                     </span>
                     <input
                       placeholder="Новый пароль"
@@ -4249,6 +4304,11 @@ function App() {
                   </li>
                   )
                 })}
+                {filteredUsers.length === 0 && (
+                  <li className="empty-user-search">
+                    <strong>Пользователи не найдены.</strong>
+                  </li>
+                )}
               </ul>
             </section>
           )}
@@ -5490,7 +5550,6 @@ function StockRow({
           onChange={(event) => onPriceChange(event.target.value)}
           disabled={!canEditPrice}
         />
-        <small>{item.currencyCode}</small>
       </span>
       <span className="stock-save-cell" data-label="Действие">
         <button type="button" onClick={onSave} disabled={!canEditPrice}>
@@ -5582,11 +5641,11 @@ function getApiErrorMessage(errorText: string, fallback: string) {
   }
 }
 
-function formatMoney(value: number, currency: string) {
+function formatMoney(value: number, _currency?: string) {
   return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: currency || 'KZT',
+    style: 'decimal',
     maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
   }).format(value)
 }
 

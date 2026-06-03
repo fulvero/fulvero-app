@@ -242,18 +242,83 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             ?? TryGetArray(data, "result")
             ?? [];
 
-        var result = orders.Select(order => new OzonSupplyOrderSummary(
+        var result = new List<OzonSupplyOrderSummary>();
+        foreach (var order in orders)
+        {
+            var summary = MapSupplyOrder(order);
+            if (string.IsNullOrWhiteSpace(summary.Id))
+            {
+                continue;
+            }
+
+            var detailed = await GetSupplyOrderDetailsAsync(summary.Id, cancellationToken);
+            result.Add(MergeSupplyOrder(summary, detailed));
+        }
+
+        return result;
+    }
+
+    private async Task<OzonSupplyOrderSummary?> GetSupplyOrderDetailsAsync(
+        string supplyOrderId,
+        CancellationToken cancellationToken)
+    {
+        if (!long.TryParse(supplyOrderId, out var numericSupplyOrderId))
+        {
+            return null;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/supply-order/get");
+        AddAuthHeaders(request);
+        request.Content = JsonContent.Create(new OzonSupplyOrderGetRequest(numericSupplyOrderId));
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var data = JsonSerializer.Deserialize<JsonElement>(content, JsonOptions);
+        return MapSupplyOrder(UnwrapResult(data));
+    }
+
+    private static OzonSupplyOrderSummary MapSupplyOrder(JsonElement order)
+    {
+        order = UnwrapResult(order);
+        return new OzonSupplyOrderSummary(
             GetString(order, "supply_order_id", "supply_order_number", "order_id", "number", "id"),
             GetString(order, "status", "state", "state_name"),
             BuildSupplyOrderWarehouseName(order),
             GetSupplyOrderShipmentDate(order),
             GetSupplyOrderCompletionDate(order),
-            GetInt(order, "sku_count", "skus_count", "items_count", "itemsCount", "total_items_count", "total_quantity", "quantity")))
-            .ToList();
-        return result
-            .Where(order => !string.IsNullOrWhiteSpace(order.Id))
-            .Where(order => IsSupplyOrderInRange(order, dateFrom, dateTo))
-            .ToList();
+            GetInt(order, "sku_count", "skus_count", "items_count", "itemsCount", "total_items_count", "total_quantity", "quantity"));
+    }
+
+    private static JsonElement UnwrapResult(JsonElement element)
+    {
+        return element.ValueKind == JsonValueKind.Object && element.TryGetProperty("result", out var result)
+            ? result
+            : element;
+    }
+
+    private static OzonSupplyOrderSummary MergeSupplyOrder(
+        OzonSupplyOrderSummary summary,
+        OzonSupplyOrderSummary? detailed)
+    {
+        if (detailed is null)
+        {
+            return summary;
+        }
+
+        return summary with
+        {
+            Id = FirstFilled(detailed.Id, summary.Id),
+            Status = FirstFilled(detailed.Status, summary.Status),
+            WarehouseName = FirstFilled(detailed.WarehouseName, summary.WarehouseName),
+            CreatedAt = FirstFilled(detailed.CreatedAt, summary.CreatedAt),
+            UpdatedAt = FirstFilled(detailed.UpdatedAt, summary.UpdatedAt),
+            ItemsCount = detailed.ItemsCount > 0 ? detailed.ItemsCount : summary.ItemsCount
+        };
     }
 
     private async Task<string> SendSupplyOrderListRequestAsync(
@@ -694,6 +759,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             GetString(order, "warehouse_name", "supply_warehouse_name", "delivery_method_name", "warehouse"),
             GetNestedString(order, "warehouse", "name"),
             GetNestedString(order, "supply_warehouse", "name"),
+            GetNestedString(order, "seller_warehouse", "name"),
             GetNestedString(order, "delivery_method", "name"));
 
         return string.Join(" / ", new[] { cluster, warehouse }.Where(value => !string.IsNullOrWhiteSpace(value)));
@@ -1093,6 +1159,9 @@ public record OzonCashFlowStatementRequest(
 public record OzonSupplyOrderListV2Request(
     [property: JsonPropertyName("from_supply_order_id")] long FromSupplyOrderId,
     [property: JsonPropertyName("limit")] int Limit);
+
+public record OzonSupplyOrderGetRequest(
+    [property: JsonPropertyName("supply_order_id")] long SupplyOrderId);
 
 public record OzonSupplyOrderListRequest(
     [property: JsonPropertyName("since")] string Since,
