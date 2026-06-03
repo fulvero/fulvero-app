@@ -204,6 +204,8 @@ type SupplyItem = {
   productName: string
   quantity: number
   actualOrderQuantity: number
+  supplierName: string
+  supplierUrl: string
   isReserve: boolean
 }
 
@@ -244,6 +246,8 @@ type DraftSupplyItem = {
   productName: string
   quantity: number
   actualOrderQuantity: number
+  supplierName: string
+  supplierUrl: string
   isReserve: boolean
 }
 
@@ -386,6 +390,8 @@ function App() {
   const [supplyQuantity, setSupplyQuantity] = useState('')
   const [reserveProductName, setReserveProductName] = useState('')
   const [reserveQuantity, setReserveQuantity] = useState('')
+  const [reserveSupplierName, setReserveSupplierName] = useState('')
+  const [reserveSupplierUrl, setReserveSupplierUrl] = useState('')
   const [draftSupplyItems, setDraftSupplyItems] = useState<DraftSupplyItem[]>([])
   const [replaceProducts, setReplaceProducts] = useState<Record<string, string>>({})
   const [supplyActualOrderEdits, setSupplyActualOrderEdits] = useState<Record<string, string>>({})
@@ -395,6 +401,8 @@ function App() {
   const [editSupplyQuantity, setEditSupplyQuantity] = useState('')
   const [editReserveProductName, setEditReserveProductName] = useState('')
   const [editReserveQuantity, setEditReserveQuantity] = useState('')
+  const [editReserveSupplierName, setEditReserveSupplierName] = useState('')
+  const [editReserveSupplierUrl, setEditReserveSupplierUrl] = useState('')
   const [analyticsProductKey, setAnalyticsProductKey] = useState('')
   const [showSupplyHelp, setShowSupplyHelp] = useState(false)
   const [showCreateSupplyModal, setShowCreateSupplyModal] = useState(false)
@@ -2100,6 +2108,8 @@ function App() {
         productName: product.name,
         quantity,
         actualOrderQuantity: quantity,
+        supplierName: '',
+        supplierUrl: '',
         isReserve: false,
       },
     ])
@@ -2116,6 +2126,11 @@ function App() {
       return
     }
 
+    if (Boolean(reserveSupplierName.trim()) !== Boolean(reserveSupplierUrl.trim())) {
+      setSupplyStatus('Для поставщика резервного товара укажите название и ссылку')
+      return
+    }
+
     setDraftSupplyItems((current) => [
       ...current,
       {
@@ -2124,11 +2139,15 @@ function App() {
         productName: reserveProductName.trim(),
         quantity,
         actualOrderQuantity: quantity,
+        supplierName: reserveSupplierName.trim(),
+        supplierUrl: reserveSupplierUrl.trim(),
         isReserve: true,
       },
     ])
     setReserveProductName('')
     setReserveQuantity('')
+    setReserveSupplierName('')
+    setReserveSupplierUrl('')
     setSupplyStatus('Резервный товар добавлен')
   }
 
@@ -2276,6 +2295,7 @@ function App() {
     })
     setSupplyStatus('Факт заказа сохранен')
     await loadSupplies()
+    await loadProductSupplierLinks()
     if (user?.role === 'Admin') {
       await loadSupplyAnalytics()
     }
@@ -2292,6 +2312,8 @@ function App() {
         productName: item.productName,
         quantity: item.quantity,
         actualOrderQuantity: item.actualOrderQuantity,
+        supplierName: item.supplierName,
+        supplierUrl: item.supplierUrl,
         isReserve: item.isReserve,
       })),
     )
@@ -2299,6 +2321,8 @@ function App() {
     setEditSupplyQuantity('')
     setEditReserveProductName('')
     setEditReserveQuantity('')
+    setEditReserveSupplierName('')
+    setEditReserveSupplierUrl('')
   }
 
   function cancelEditSupply() {
@@ -2308,6 +2332,8 @@ function App() {
     setEditSupplyQuantity('')
     setEditReserveProductName('')
     setEditReserveQuantity('')
+    setEditReserveSupplierName('')
+    setEditReserveSupplierUrl('')
   }
 
   function addEditSupplyProduct() {
@@ -2328,6 +2354,8 @@ function App() {
         productName: product.name,
         quantity,
         actualOrderQuantity: quantity,
+        supplierName: '',
+        supplierUrl: '',
         isReserve: false,
       },
     ])
@@ -2343,6 +2371,11 @@ function App() {
       return
     }
 
+    if (Boolean(editReserveSupplierName.trim()) !== Boolean(editReserveSupplierUrl.trim())) {
+      setSupplyStatus('Для поставщика резервного товара укажите название и ссылку')
+      return
+    }
+
     setEditSupplyItems((current) => [
       ...current,
       {
@@ -2351,16 +2384,25 @@ function App() {
         productName: editReserveProductName.trim(),
         quantity,
         actualOrderQuantity: quantity,
+        supplierName: editReserveSupplierName.trim(),
+        supplierUrl: editReserveSupplierUrl.trim(),
         isReserve: true,
       },
     ])
     setEditReserveProductName('')
     setEditReserveQuantity('')
+    setEditReserveSupplierName('')
+    setEditReserveSupplierUrl('')
   }
 
   async function saveSupplyEdit(id: string) {
     if (editSupplyItems.length === 0) {
       setSupplyStatus('В поставке должен быть хотя бы один товар')
+      return
+    }
+
+    if (editSupplyItems.some((item) => Boolean(item.supplierName.trim()) !== Boolean(item.supplierUrl.trim()))) {
+      setSupplyStatus('Для поставщика укажите название и ссылку')
       return
     }
 
@@ -2382,6 +2424,7 @@ function App() {
     }
 
     await loadSupplies()
+    await loadProductSupplierLinks()
     await loadSupplyAnalytics()
     cancelEditSupply()
     setSupplyStatus('Поставка сохранена')
@@ -2616,7 +2659,7 @@ function App() {
                   onChange={(event) => setProfileAvatar(event.target.files?.[0] ?? null)}
                 />
               </label>
-              <span>
+              <span className="profile-card-details">
                 <strong>{user?.displayName || user?.userName}</strong>
                 <small>ID сотрудника: {user?.id}</small>
                 <small>{user?.position || 'Должность указывает администратор'}</small>
@@ -3636,6 +3679,16 @@ function App() {
                               value={reserveQuantity}
                               onChange={(event) => setReserveQuantity(event.target.value)}
                             />
+                            <input
+                              placeholder="Поставщик резервного товара"
+                              value={reserveSupplierName}
+                              onChange={(event) => setReserveSupplierName(event.target.value)}
+                            />
+                            <input
+                              placeholder="Ссылка поставщика"
+                              value={reserveSupplierUrl}
+                              onChange={(event) => setReserveSupplierUrl(event.target.value)}
+                            />
                             <button type="button" onClick={addReserveSupplyProduct}>
                               Создать резервный товар
                             </button>
@@ -3704,6 +3757,10 @@ function App() {
                     setEditReserveProductName={setEditReserveProductName}
                     editReserveQuantity={editReserveQuantity}
                     setEditReserveQuantity={setEditReserveQuantity}
+                    editReserveSupplierName={editReserveSupplierName}
+                    setEditReserveSupplierName={setEditReserveSupplierName}
+                    editReserveSupplierUrl={editReserveSupplierUrl}
+                    setEditReserveSupplierUrl={setEditReserveSupplierUrl}
                     onStartEdit={startEditSupply}
                     onCancelEdit={cancelEditSupply}
                     onAddEditProduct={addEditSupplyProduct}
@@ -3738,6 +3795,10 @@ function App() {
                   setEditReserveProductName={setEditReserveProductName}
                   editReserveQuantity={editReserveQuantity}
                   setEditReserveQuantity={setEditReserveQuantity}
+                  editReserveSupplierName={editReserveSupplierName}
+                  setEditReserveSupplierName={setEditReserveSupplierName}
+                  editReserveSupplierUrl={editReserveSupplierUrl}
+                  setEditReserveSupplierUrl={setEditReserveSupplierUrl}
                   onStartEdit={startEditSupply}
                   onCancelEdit={cancelEditSupply}
                   onAddEditProduct={addEditSupplyProduct}
@@ -3774,6 +3835,10 @@ function App() {
                   setEditReserveProductName={setEditReserveProductName}
                   editReserveQuantity={editReserveQuantity}
                   setEditReserveQuantity={setEditReserveQuantity}
+                  editReserveSupplierName={editReserveSupplierName}
+                  setEditReserveSupplierName={setEditReserveSupplierName}
+                  editReserveSupplierUrl={editReserveSupplierUrl}
+                  setEditReserveSupplierUrl={setEditReserveSupplierUrl}
                   onStartEdit={startEditSupply}
                   onCancelEdit={cancelEditSupply}
                   onAddEditProduct={addEditSupplyProduct}
@@ -4141,8 +4206,10 @@ function App() {
 
               <div className="user-search-bar">
                 <input
-                  name="manual-user-search"
-                  autoComplete="off"
+                  name="fulvero-user-search-no-browser-fill"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={userSearch}
                   placeholder="Поиск по пользователям"
                   onChange={(event) => setUserSearch(event.target.value)}
@@ -4977,6 +5044,10 @@ function SupplyTable({
   setEditReserveProductName,
   editReserveQuantity,
   setEditReserveQuantity,
+  editReserveSupplierName,
+  setEditReserveSupplierName,
+  editReserveSupplierUrl,
+  setEditReserveSupplierUrl,
   onStartEdit,
   onCancelEdit,
   onAddEditProduct,
@@ -5008,6 +5079,10 @@ function SupplyTable({
   setEditReserveProductName: Dispatch<SetStateAction<string>>
   editReserveQuantity: string
   setEditReserveQuantity: Dispatch<SetStateAction<string>>
+  editReserveSupplierName: string
+  setEditReserveSupplierName: Dispatch<SetStateAction<string>>
+  editReserveSupplierUrl: string
+  setEditReserveSupplierUrl: Dispatch<SetStateAction<string>>
   onStartEdit: (supply: Supply) => void
   onCancelEdit: () => void
   onAddEditProduct: () => void
@@ -5042,6 +5117,8 @@ function SupplyTable({
               productName: item.productName,
               quantity: item.quantity,
               actualOrderQuantity: item.actualOrderQuantity,
+              supplierName: item.supplierName,
+              supplierUrl: item.supplierUrl,
               isReserve: item.isReserve,
             }))
 
@@ -5176,6 +5253,16 @@ function SupplyTable({
                     value={editReserveQuantity}
                     onChange={(event) => setEditReserveQuantity(event.target.value)}
                   />
+                  <input
+                    placeholder="Поставщик"
+                    value={editReserveSupplierName}
+                    onChange={(event) => setEditReserveSupplierName(event.target.value)}
+                  />
+                  <input
+                    placeholder="Ссылка поставщика"
+                    value={editReserveSupplierUrl}
+                    onChange={(event) => setEditReserveSupplierUrl(event.target.value)}
+                  />
                   <button type="button" onClick={onAddEditReserve}>
                     Добавить резерв
                   </button>
@@ -5276,7 +5363,40 @@ function SupplyTable({
                       )}
                     </span>
                     <span>
-                      {item.ozonProductId && (productSupplierLinks[item.ozonProductId] ?? []).length > 0 ? (
+                      {isEditing && item.isReserve ? (
+                        <span className="reserve-supplier-fields">
+                          <input
+                            value={item.supplierName}
+                            placeholder="Поставщик"
+                            onChange={(event) =>
+                              setEditSupplyItems((current) =>
+                                current.map((row) =>
+                                  row.tempId === item.tempId
+                                    ? { ...row, supplierName: event.target.value }
+                                    : row,
+                                ),
+                              )
+                            }
+                          />
+                          <input
+                            value={item.supplierUrl}
+                            placeholder="Ссылка"
+                            onChange={(event) =>
+                              setEditSupplyItems((current) =>
+                                current.map((row) =>
+                                  row.tempId === item.tempId
+                                    ? { ...row, supplierUrl: event.target.value }
+                                    : row,
+                                ),
+                              )
+                            }
+                          />
+                        </span>
+                      ) : item.supplierUrl ? (
+                        <a href={item.supplierUrl} target="_blank" rel="noreferrer">
+                          {item.supplierName || 'Поставщик'}
+                        </a>
+                      ) : item.ozonProductId && (productSupplierLinks[item.ozonProductId] ?? []).length > 0 ? (
                         <span className="selected-supplier-links">
                           {(productSupplierLinks[item.ozonProductId] ?? []).map((link) => (
                             <a href={link.supplierUrl} target="_blank" rel="noreferrer" key={link.id ?? link.supplierUrl}>

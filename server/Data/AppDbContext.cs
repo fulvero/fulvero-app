@@ -104,6 +104,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasIndex(item => item.IsReserve);
             entity.Property(item => item.OfferId).HasMaxLength(120);
             entity.Property(item => item.ProductName).HasMaxLength(240);
+            entity.Property(item => item.SupplierName).HasMaxLength(180);
+            entity.Property(item => item.SupplierUrl).HasMaxLength(1000);
         });
 
         modelBuilder.Entity<ChatMessage>(entity =>

@@ -1827,6 +1827,8 @@ app.MapGet("/api/supplies", async (AppDbContext db, ClaimsPrincipal principal) =
                     item.ProductName,
                     item.Quantity,
                     item.ActualOrderQuantity,
+                    item.SupplierName,
+                    item.SupplierUrl,
                     item.IsReserve))
                 .ToList(),
             historiesBySupplyId.GetValueOrDefault(supply.Id.ToString()) ?? []))
@@ -1855,6 +1857,8 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
             ProductName = item.ProductName.Trim(),
             Quantity = item.Quantity,
             ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
+            SupplierName = item.SupplierName.Trim(),
+            SupplierUrl = item.SupplierUrl.Trim(),
             IsReserve = item.IsReserve
         }).ToList()
     };
@@ -1864,7 +1868,13 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
         return Results.BadRequest("Укажите название, количество больше нуля и факт заказа не меньше нуля для каждой строки.");
     }
 
+    if (supply.Items.Any(item => string.IsNullOrWhiteSpace(item.SupplierName) != string.IsNullOrWhiteSpace(item.SupplierUrl)))
+    {
+        return Results.BadRequest("Для поставщика укажите и название, и ссылку.");
+    }
+
     db.Supplies.Add(supply);
+    await SupplierLinkSync.AddFromSupplyItemsAsync(db, CompanyAccess.GetCompanyId(principal), supply.Items);
     AuditLogWriter.Add(db, principal, "Создание поставки", "Supply", supply.Id.ToString(), $"Товаров: {supply.Items.Count}");
     await db.SaveChangesAsync();
 
@@ -1883,6 +1893,8 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
             item.ProductName,
             item.Quantity,
             item.ActualOrderQuantity,
+            item.SupplierName,
+            item.SupplierUrl,
             item.IsReserve)).ToList(),
         []));
 }).RequireAuthorization();
@@ -1940,6 +1952,8 @@ app.MapPost("/api/supplies/import", async (
             ProductName = item.ProductName.Trim(),
             Quantity = item.Quantity,
             ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
+            SupplierName = item.SupplierName.Trim(),
+            SupplierUrl = item.SupplierUrl.Trim(),
             IsReserve = item.IsReserve
         }).ToList()
     };
@@ -2042,6 +2056,8 @@ app.MapPut("/api/supplies/{id:guid}", async (
         ProductName = item.ProductName.Trim(),
         Quantity = item.Quantity,
         ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
+        SupplierName = item.SupplierName.Trim(),
+        SupplierUrl = item.SupplierUrl.Trim(),
         IsReserve = item.IsReserve
     }).ToList();
 
@@ -2050,8 +2066,14 @@ app.MapPut("/api/supplies/{id:guid}", async (
         return Results.BadRequest("Укажите название, количество больше нуля и факт заказа не меньше нуля для каждой строки.");
     }
 
+    if (updatedItems.Any(item => string.IsNullOrWhiteSpace(item.SupplierName) != string.IsNullOrWhiteSpace(item.SupplierUrl)))
+    {
+        return Results.BadRequest("Для поставщика укажите и название, и ссылку.");
+    }
+
     db.SupplyItems.RemoveRange(supply.Items);
     db.SupplyItems.AddRange(updatedItems);
+    await SupplierLinkSync.AddFromSupplyItemsAsync(db, CompanyAccess.GetCompanyId(principal), updatedItems);
     AuditLogWriter.Add(db, principal, "Редактирование поставки", "Supply", supply.Id.ToString(), $"Товаров: {updatedItems.Count}");
     await db.SaveChangesAsync();
 
@@ -2155,6 +2177,7 @@ app.MapPut("/api/supplies/items/{id:guid}/replace-reserve", async (
     item.OfferId = request.OfferId.Trim();
     item.ProductName = request.ProductName.Trim();
     item.IsReserve = false;
+    await SupplierLinkSync.AddFromSupplyItemsAsync(db, CompanyAccess.GetCompanyId(principal), [item]);
     AuditLogWriter.Add(db, principal, "Замена резервного товара", "SupplyItem", item.Id.ToString(), item.ProductName);
     AuditLogWriter.Add(db, principal, "Замена резервного товара", "Supply", item.SupplyId.ToString(), item.ProductName);
     await db.SaveChangesAsync();
@@ -2459,7 +2482,15 @@ record ProductionTaskListItem(
     List<ProductionTaskItemListItem> Items);
 record ProductionTaskItemListItem(Guid Id, long OzonProductId, string OfferId, string ProductName, int RequiredQuantity, int? ActualQuantity);
 record CreateSupplyRequest(List<CreateSupplyItemRequest> Items);
-record CreateSupplyItemRequest(long? OzonProductId, string OfferId, string ProductName, int Quantity, int? ActualOrderQuantity, bool IsReserve);
+record CreateSupplyItemRequest(
+    long? OzonProductId,
+    string OfferId,
+    string ProductName,
+    int Quantity,
+    int? ActualOrderQuantity,
+    bool IsReserve,
+    string SupplierName = "",
+    string SupplierUrl = "");
 record UpdateSupplyRequest(List<CreateSupplyItemRequest> Items);
 record ChangeSupplyStatusRequest(string Status);
 record ReplaceReserveSupplyItemRequest(long OzonProductId, string OfferId, string ProductName);
@@ -2481,6 +2512,8 @@ record SupplyItemListItem(
     string ProductName,
     int Quantity,
     int ActualOrderQuantity,
+    string SupplierName,
+    string SupplierUrl,
     bool IsReserve);
 record SupplyHistoryItem(
     Guid Id,
@@ -2531,6 +2564,46 @@ record OzonIntegrationStatusResponse(
     string ApiKeyMasked,
     DateTimeOffset CheckedAt);
 record OzonCredentials(string ClientId, string ApiKey);
+
+static class SupplierLinkSync
+{
+    public static async Task AddFromSupplyItemsAsync(
+        AppDbContext db,
+        Guid companyId,
+        IEnumerable<SupplyItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (!item.OzonProductId.HasValue
+                || string.IsNullOrWhiteSpace(item.SupplierName)
+                || string.IsNullOrWhiteSpace(item.SupplierUrl))
+            {
+                continue;
+            }
+
+            var supplierName = item.SupplierName.Trim();
+            var supplierUrl = item.SupplierUrl.Trim();
+            var exists = await db.ProductSupplierLinks.AnyAsync(link =>
+                link.CompanyId == companyId
+                && link.OzonProductId == item.OzonProductId.Value
+                && link.SupplierUrl == supplierUrl);
+            if (exists)
+            {
+                continue;
+            }
+
+            db.ProductSupplierLinks.Add(new ProductSupplierLink
+            {
+                CompanyId = companyId,
+                OzonProductId = item.OzonProductId.Value,
+                OfferId = item.OfferId.Trim(),
+                SupplierName = supplierName,
+                SupplierUrl = supplierUrl,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+        }
+    }
+}
 
 static class AuditLogWriter
 {

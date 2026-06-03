@@ -437,6 +437,23 @@
   background: #f8fafc;
 }
 
+.profile-card-details {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.profile-card-details strong,
+.profile-card-details small {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.profile-card-details small {
+  color: #344054;
+}
+
 .profile-avatar,
 .chat-avatar {
   display: grid;
@@ -1257,6 +1274,16 @@
 
 .supply-actual-cell button {
   padding: 8px 10px;
+}
+
+.reserve-supplier-fields {
+  display: grid;
+  gap: 6px;
+}
+
+.reserve-supplier-fields input {
+  width: 100%;
+  min-width: 0;
 }
 
 .order-status-pill {
