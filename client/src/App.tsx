@@ -3001,6 +3001,10 @@ function App() {
                     <span><b>{analytics?.awaitingDeliverCount ?? 0}</b><small>готово к отгрузке</small></span>
                     <span><b>{analytics ? formatPlainNumber(analytics.accountBalance?.amount ?? 0) : '-'}</b><small>на счету сейчас</small></span>
                   </div>
+                  <div className="sales-chart-meta">
+                    <span><i /> Продажи по дням, шт.</span>
+                    <small>Наведи на столбец, чтобы увидеть дату, количество и выручку</small>
+                  </div>
                   <div className="sales-chart" aria-label="График продаж за 30 дней">
                     {dashboardSalesDays.map((day, index) => (
                       <span className="sales-chart-day" key={day.date}>
@@ -3011,6 +3015,11 @@ function App() {
                             opacity: day.quantity > 0 ? 1 : 0.28,
                           }}
                         />
+                        {day.quantity > 0 && (
+                          <b style={{ bottom: `${Math.max(8, Math.round((day.quantity / maxDashboardSales) * 100))}%` }}>
+                            {formatPlainNumber(day.quantity)}
+                          </b>
+                        )}
                         {(index === 0 || index === dashboardSalesDays.length - 1 || index % 7 === 0) && (
                           <small>{formatDateShort(day.date)}</small>
                         )}
@@ -3860,51 +3869,75 @@ function App() {
 
                         <div className="supply-forms">
                           <div className="supply-form-block">
-                            <strong>Товар из Ozon</strong>
-                            <ProductSearchInput
-                              listId="supply-products"
-                              products={purchaseProducts}
-                              supplierLinks={productSupplierLinks}
-                              selectedProductId={supplyProductId}
-                              onProductIdChange={setSupplyProductId}
-                              placeholder="Начните писать название или артикул"
-                            />
-                            <input
-                              type="number"
-                              min="1"
-                              placeholder="Количество"
-                              value={supplyQuantity}
-                              onChange={(event) => setSupplyQuantity(event.target.value)}
-                            />
+                            <span className="supply-form-title">
+                              <strong>Товар из Ozon</strong>
+                              <small>Для закупочных товаров из каталога</small>
+                            </span>
+                            <label className="supply-field supply-field-wide">
+                              <span>Товар</span>
+                              <ProductSearchInput
+                                listId="supply-products"
+                                products={purchaseProducts}
+                                supplierLinks={productSupplierLinks}
+                                selectedProductId={supplyProductId}
+                                onProductIdChange={setSupplyProductId}
+                                placeholder="Начните писать название или артикул"
+                              />
+                            </label>
+                            <label className="supply-field">
+                              <span>Количество</span>
+                              <input
+                                type="number"
+                                min="1"
+                                placeholder="Например: 20"
+                                value={supplyQuantity}
+                                onChange={(event) => setSupplyQuantity(event.target.value)}
+                              />
+                            </label>
                             <button type="button" onClick={addSupplyProduct}>
                               Добавить
                             </button>
                           </div>
 
                           <div className="supply-form-block">
-                            <strong>Резервный товар</strong>
-                            <input
-                              placeholder="Название резервного товара"
-                              value={reserveProductName}
-                              onChange={(event) => setReserveProductName(event.target.value)}
-                            />
-                            <input
-                              type="number"
-                              min="1"
-                              placeholder="Количество"
-                              value={reserveQuantity}
-                              onChange={(event) => setReserveQuantity(event.target.value)}
-                            />
-                            <input
-                              placeholder="Поставщик резервного товара"
-                              value={reserveSupplierName}
-                              onChange={(event) => setReserveSupplierName(event.target.value)}
-                            />
-                            <input
-                              placeholder="Ссылка поставщика"
-                              value={reserveSupplierUrl}
-                              onChange={(event) => setReserveSupplierUrl(event.target.value)}
-                            />
+                            <span className="supply-form-title">
+                              <strong>Резервный товар</strong>
+                              <small>Если товара еще нет в каталоге Ozon</small>
+                            </span>
+                            <label className="supply-field supply-field-wide">
+                              <span>Название товара</span>
+                              <input
+                                placeholder="Например: упаковка для набора"
+                                value={reserveProductName}
+                                onChange={(event) => setReserveProductName(event.target.value)}
+                              />
+                            </label>
+                            <label className="supply-field">
+                              <span>Количество</span>
+                              <input
+                                type="number"
+                                min="1"
+                                placeholder="Например: 20"
+                                value={reserveQuantity}
+                                onChange={(event) => setReserveQuantity(event.target.value)}
+                              />
+                            </label>
+                            <label className="supply-field">
+                              <span>Поставщик</span>
+                              <input
+                                placeholder="Название поставщика"
+                                value={reserveSupplierName}
+                                onChange={(event) => setReserveSupplierName(event.target.value)}
+                              />
+                            </label>
+                            <label className="supply-field supply-field-wide">
+                              <span>Ссылка поставщика</span>
+                              <input
+                                placeholder="https://..."
+                                value={reserveSupplierUrl}
+                                onChange={(event) => setReserveSupplierUrl(event.target.value)}
+                              />
+                            </label>
                             <button type="button" onClick={addReserveSupplyProduct}>
                               Создать резервный товар
                             </button>
@@ -3913,18 +3946,33 @@ function App() {
 
                         <div className="data-table modal-table">
                           <div className="table-row supply-item-row table-head">
-                            <span>Товар в новой поставке</span>
+                            <span>Товар</span>
                             <span>Артикул</span>
-                            <span>Количество</span>
-                            <span>Тип</span>
+                            <span>План</span>
+                            <span>Факт заказа</span>
+                            <span>Источник</span>
+                            <span>Поставщик</span>
                             <span></span>
                           </div>
                           {draftSupplyItems.map((item) => (
                             <div className="table-row supply-item-row" key={item.tempId}>
-                              <span>{item.productName}</span>
+                              <span>
+                                <strong>{item.productName}</strong>
+                                <small>{item.isReserve ? 'Резервная строка' : 'Товар из Ozon'}</small>
+                              </span>
                               <span>{item.offerId || '-'}</span>
                               <span>{item.quantity}</span>
+                              <span>{item.actualOrderQuantity}</span>
                               <span>{item.isReserve ? 'Резервный' : 'Постоянный'}</span>
+                              <span>
+                                {item.supplierUrl ? (
+                                  <a href={item.supplierUrl} target="_blank" rel="noreferrer">
+                                    {item.supplierName || 'Открыть'}
+                                  </a>
+                                ) : (
+                                  item.supplierName || '-'
+                                )}
+                              </span>
                               <span>
                                 <button
                                   type="button"
