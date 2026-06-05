@@ -1217,6 +1217,11 @@
   font-weight: 800;
 }
 
+.compact-button {
+  padding: 8px 12px;
+  min-height: 34px;
+}
+
 .attention-list,
 .metric-list,
 .chart-summary {
@@ -1228,6 +1233,10 @@
 .metric-list,
 .chart-summary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.chart-summary {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .attention-list span,
@@ -1252,22 +1261,58 @@
   flex-wrap: wrap;
 }
 
-.mini-bars {
-  display: flex;
+.sales-chart {
+  display: grid;
+  grid-template-columns: repeat(30, minmax(10px, 1fr));
   align-items: end;
-  gap: 8px;
-  height: 140px;
+  gap: 6px;
+  height: 190px;
   border: 1px solid #e4e7ec;
   border-radius: 8px;
-  padding: 14px;
-  background: linear-gradient(180deg, #f8fafc, #ffffff);
+  padding: 16px 14px 28px;
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.07), rgba(255, 255, 255, 0) 45%),
+    repeating-linear-gradient(180deg, transparent 0, transparent 37px, #edf2f7 38px),
+    #ffffff;
 }
 
-.mini-bars span {
-  flex: 1;
-  min-width: 10px;
+.sales-chart-day {
+  position: relative;
+  display: grid;
+  align-items: end;
+  height: 100%;
+  min-width: 0;
+}
+
+.sales-chart-day i,
+.sales-chart-day em {
+  grid-area: 1 / 1;
+  align-self: end;
+  display: block;
+  width: 100%;
+  min-height: 4px;
   border-radius: 999px 999px 4px 4px;
-  background: linear-gradient(180deg, #2f80ff, #3a22e8);
+}
+
+.sales-chart-day i {
+  background: linear-gradient(180deg, #2563eb, #14b8a6);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
+}
+
+.sales-chart-day em {
+  width: 45%;
+  justify-self: center;
+  background: #f59e0b;
+}
+
+.sales-chart-day small {
+  position: absolute;
+  left: 50%;
+  bottom: -22px;
+  transform: translateX(-50%);
+  color: #667085;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .new-products-list {

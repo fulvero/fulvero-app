@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import * as signalR from '@microsoft/signalr'
 import fulveroLogo from './assets/fulvero-logo.png'
@@ -119,12 +119,18 @@ type OzonAnalytics = {
     revenue: number
     currencyCode: string
   }>
+  dailySales: Array<{
+    date: string
+    quantity: number
+    revenue: number
+  }>
   orderedUnitsTotal: number
   revenueTotal: number
   commissionTotal: number
   payoutTotal: number
   logisticsTotal: number
   servicesTotal: number
+  awaitingPackagingCount: number
   awaitingDeliverCount: number
   deliveringCount: number
   deliveredCount: number
@@ -416,6 +422,11 @@ function App() {
   const [profileStatus, setProfileStatus] = useState('')
   const [chatUsers, setChatUsers] = useState<User[]>([])
   const [userSearch, setUserSearch] = useState('')
+  const [userSearchReady, setUserSearchReady] = useState(false)
+  const userSearchInputName = useMemo(
+    () => `fulvero-search-${Math.random().toString(36).slice(2)}-${Date.now()}`,
+    [],
+  )
   const [selectedChatUserId, setSelectedChatUserId] = useState('')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatText, setChatText] = useState('')
@@ -511,6 +522,9 @@ function App() {
       key: row.sku ? `sku:${row.sku}` : `offer:${row.offerId}`,
     }))
     .sort((left, right) => right.quantity - left.quantity)
+  const dashboardSalesDays = buildDashboardSalesDays(analytics)
+  const maxDashboardSales = Math.max(...dashboardSalesDays.map((item) => item.quantity), 1)
+  const maxDashboardRevenue = Math.max(...dashboardSalesDays.map((item) => item.revenue), 1)
   const urgentStockItems = getUrgentStockItems(ozonStocks, analytics)
   const urgentProductionItems = urgentStockItems.filter((item) =>
     productionProducts.some((product) => product.productId === item.productId),
@@ -2922,20 +2936,37 @@ function App() {
 
                 <article className="dashboard-card dashboard-card-wide">
                   <div className="dashboard-card-head">
-                    <span><strong>График</strong><small>Последние 30 дней</small></span>
-                    <button type="button" onClick={loadAnalytics}>Обновить</button>
+                    <span><strong>График продаж</strong><small>Последние 30 дней</small></span>
+                    <button type="button" className="compact-button" onClick={loadAnalytics}>Обновить</button>
                   </div>
                   <div className="chart-summary">
                     <span><b>{analytics?.orderedUnitsTotal ?? 0}</b><small>продано, шт.</small></span>
-                    <span><b>{analytics ? formatMoney(analytics.revenueTotal) : '-'}</b><small>выручка</small></span>
+                    <span><b>{analytics ? formatPlainNumber(analytics.revenueTotal) : '-'}</b><small>выручка</small></span>
+                    <span><b>{analytics?.deliveringCount ?? 0}</b><small>заказов в пути</small></span>
+                    <span><b>{analytics?.awaitingPackagingCount ?? 0}</b><small>собираются</small></span>
+                    <span><b>{analytics?.awaitingDeliverCount ?? 0}</b><small>готово к отгрузке</small></span>
+                    <span><b>{analytics ? formatPlainNumber(analytics.accountBalance?.amount ?? 0) : '-'}</b><small>на счету сейчас</small></span>
                   </div>
-                  <div className="mini-bars" aria-label="График продаж">
-                    {topAnalyticsProducts.slice(0, 12).map((row) => (
-                      <span
-                        key={row.key}
-                        title={row.productName}
-                        style={{ height: `${Math.max(18, Math.min(100, row.quantity * 8))}%` }}
-                      />
+                  <div className="sales-chart" aria-label="График продаж за 30 дней">
+                    {dashboardSalesDays.map((day, index) => (
+                      <span className="sales-chart-day" key={day.date}>
+                        <i
+                          title={`${formatDateShort(day.date)}: ${formatPlainNumber(day.quantity)} шт., ${formatPlainNumber(day.revenue)}`}
+                          style={{
+                            height: `${Math.max(6, Math.round((day.quantity / maxDashboardSales) * 100))}%`,
+                            opacity: day.quantity > 0 ? 1 : 0.28,
+                          }}
+                        />
+                        <em
+                          style={{
+                            height: `${Math.max(4, Math.round((day.revenue / maxDashboardRevenue) * 100))}%`,
+                            opacity: day.revenue > 0 ? 0.45 : 0.14,
+                          }}
+                        />
+                        {(index === 0 || index === dashboardSalesDays.length - 1 || index % 7 === 0) && (
+                          <small>{formatDateShort(day.date)}</small>
+                        )}
+                      </span>
                     ))}
                   </div>
                 </article>
@@ -4335,12 +4366,23 @@ function App() {
 
               <div className="user-search-bar">
                 <input
-                  name="fulvero-user-search-no-browser-fill"
-                  autoComplete="new-password"
+                  name={userSearchInputName}
+                  type="search"
+                  autoComplete="off"
+                  autoCapitalize="none"
                   autoCorrect="off"
+                  data-form-type="other"
+                  readOnly={!userSearchReady}
                   spellCheck={false}
                   value={userSearch}
                   placeholder="Поиск по пользователям"
+                  onFocus={(event) => {
+                    setUserSearchReady(true)
+                    if (event.currentTarget.value && event.currentTarget.value !== userSearch) {
+                      setUserSearch('')
+                    }
+                  }}
+                  onMouseDown={() => setUserSearchReady(true)}
                   onChange={(event) => setUserSearch(event.target.value)}
                 />
                 <span>Найдено: {filteredUsers.length}</span>
@@ -5859,6 +5901,30 @@ function formatPlainNumber(value: number) {
   return new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: 2,
   }).format(value)
+}
+
+function buildDashboardSalesDays(analytics: OzonAnalytics | null) {
+  const today = new Date()
+  const valuesByDate = new Map((analytics?.dailySales ?? []).map((item) => [item.date, item]))
+
+  return Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(today)
+    date.setDate(today.getDate() - (29 - index))
+    const key = date.toISOString().slice(0, 10)
+    const value = valuesByDate.get(key)
+    return {
+      date: key,
+      quantity: value?.quantity ?? 0,
+      revenue: value?.revenue ?? 0,
+    }
+  })
+}
+
+function formatDateShort(value: string) {
+  return new Date(value).toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+  })
 }
 
 function translateStatus(status: string) {

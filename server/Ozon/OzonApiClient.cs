@@ -189,6 +189,28 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         var postings = await GetFboPostingsAsync(dateFrom, dateTo, cancellationToken);
         postings.AddRange(await GetFbsPostingsAsync(dateFrom, dateTo, cancellationToken));
 
+        var dailySales = postings
+            .Where(posting => posting.Status != "cancelled")
+            .SelectMany(posting =>
+            {
+                var date = GetPostingDate(posting);
+                return posting.Products
+                    .Where(product => product.Quantity > 0)
+                    .Select(product => new
+                    {
+                        Date = date,
+                        product.Quantity,
+                        Revenue = product.Price * product.Quantity
+                    });
+            })
+            .GroupBy(item => item.Date)
+            .Select(group => new OzonSalesDay(
+                group.Key.ToString("yyyy-MM-dd"),
+                group.Sum(item => item.Quantity),
+                group.Sum(item => item.Revenue)))
+            .OrderBy(row => row.Date)
+            .ToList();
+
         var topProducts = postings
             .Where(posting => posting.Status != "cancelled")
             .SelectMany(posting => posting.Products)
@@ -212,17 +234,27 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         return new OzonAnalyticsResult(
             productRows,
             topProducts,
+            dailySales,
             orderedUnitsTotal,
             revenueTotal,
             commissionTotal,
             payoutTotal,
             logisticsTotal,
             finance.Operations.Where(operation => operation.Type == "services").Sum(operation => operation.Amount),
+            postings.Count(posting => posting.Status == "awaiting_packaging"),
             postings.Count(posting => posting.Status == "awaiting_deliver"),
             postings.Count(posting => posting.Status == "delivering"),
             postings.Count(posting => posting.Status == "delivered"),
             await GetAccountBalanceAsync(dateFrom, dateTo, cancellationToken),
             DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    private static DateOnly GetPostingDate(OzonPosting posting)
+    {
+        var value = !string.IsNullOrWhiteSpace(posting.CreatedAt) ? posting.CreatedAt : posting.InProcessAt;
+        return DateTimeOffset.TryParse(value, out var parsed)
+            ? DateOnly.FromDateTime(parsed.UtcDateTime)
+            : DateOnly.FromDateTime(DateTime.UtcNow);
     }
 
     public async Task<IReadOnlyList<OzonSupplyOrderSummary>> GetSupplyOrdersAsync(
@@ -1037,12 +1069,14 @@ public record OzonPriceUpdateResult(bool Success, string Message, JsonElement Ra
 public record OzonAnalyticsResult(
     IReadOnlyList<OzonAnalyticsRow> Rows,
     IReadOnlyList<OzonTopProductRow> TopProducts,
+    IReadOnlyList<OzonSalesDay> DailySales,
     decimal OrderedUnitsTotal,
     decimal RevenueTotal,
     decimal CommissionTotal,
     decimal PayoutTotal,
     decimal LogisticsTotal,
     decimal ServicesTotal,
+    int AwaitingPackagingCount,
     int AwaitingDeliverCount,
     int DeliveringCount,
     int DeliveredCount,
@@ -1050,6 +1084,8 @@ public record OzonAnalyticsResult(
     string Timestamp);
 
 public record OzonAccountBalance(decimal Amount, string CurrencyCode);
+
+public record OzonSalesDay(string Date, decimal Quantity, decimal Revenue);
 
 public record OzonAnalyticsRow(
     long Sku,
