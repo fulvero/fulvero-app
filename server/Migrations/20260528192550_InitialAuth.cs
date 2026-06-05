@@ -1,9 +1,9 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace LShopOzonWebReact.Api.Migrations
+namespace Fulvero.Api.Migrations
 {
     /// <inheritdoc />
     public partial class InitialAuth : Migration

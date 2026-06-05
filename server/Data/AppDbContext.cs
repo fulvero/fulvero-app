@@ -1,7 +1,7 @@
-using LShopOzonWebReact.Api.Models;
+using Fulvero.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace LShopOzonWebReact.Api.Data;
+namespace Fulvero.Api.Data;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
@@ -48,11 +48,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<ProductionFile>(entity =>
         {
+            entity.HasIndex(file => file.CompanyId);
             entity.HasIndex(file => file.OfferId);
             entity.Property(file => file.OfferId).HasMaxLength(120);
             entity.Property(file => file.ProductName).HasMaxLength(240);
             entity.Property(file => file.FileName).HasMaxLength(260);
             entity.Property(file => file.ContentType).HasMaxLength(120);
+            entity.HasOne(file => file.Company)
+                .WithMany()
+                .HasForeignKey(file => file.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ProductSetting>(entity =>
@@ -81,12 +86,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<ProductionTask>(entity =>
         {
+            entity.HasIndex(task => task.CompanyId);
             entity.HasIndex(task => task.Status);
             entity.HasIndex(task => task.IsArchived);
             entity.Property(task => task.OfferId).HasMaxLength(120);
             entity.Property(task => task.ProductName).HasMaxLength(240);
             entity.Property(task => task.Status).HasMaxLength(32);
             entity.Property(task => task.AssignedUserName).HasMaxLength(80);
+            entity.HasOne(task => task.Company)
+                .WithMany()
+                .HasForeignKey(task => task.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(task => task.Items)
                 .WithOne(item => item.ProductionTask)
                 .HasForeignKey(item => item.ProductionTaskId)
@@ -102,9 +112,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<Supply>(entity =>
         {
+            entity.HasIndex(supply => supply.CompanyId);
             entity.HasIndex(supply => supply.Status);
             entity.HasIndex(supply => supply.IsArchived);
             entity.Property(supply => supply.Status).HasMaxLength(32);
+            entity.HasOne(supply => supply.Company)
+                .WithMany()
+                .HasForeignKey(supply => supply.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(supply => supply.Items)
                 .WithOne(item => item.Supply)
                 .HasForeignKey(item => item.SupplyId)
@@ -141,6 +156,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<AuditLog>(entity =>
         {
+            entity.HasIndex(log => log.CompanyId);
             entity.HasIndex(log => log.CreatedAt);
             entity.HasIndex(log => log.Action);
             entity.HasIndex(log => log.EntityType);
@@ -151,6 +167,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(log => log.EntityType).HasMaxLength(80);
             entity.Property(log => log.EntityId).HasMaxLength(120);
             entity.Property(log => log.Details).HasMaxLength(2000);
+            entity.HasOne(log => log.Company)
+                .WithMany()
+                .HasForeignKey(log => log.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

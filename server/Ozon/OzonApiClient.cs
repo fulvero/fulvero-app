@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 
-namespace LShopOzonWebReact.Api.Ozon;
+namespace Fulvero.Api.Ozon;
 
 public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
 {

@@ -1,10 +1,10 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using LShopOzonWebReact.Api.Models;
+using Fulvero.Api.Models;
 using Microsoft.IdentityModel.Tokens;
 
-namespace LShopOzonWebReact.Api.Security;
+namespace Fulvero.Api.Security;
 
 public class JwtTokenService(IConfiguration configuration)
 {

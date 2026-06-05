@@ -1,4 +1,4 @@
-namespace LShopOzonWebReact.Api.Ozon;
+namespace Fulvero.Api.Ozon;
 
 public class OzonOptions
 {

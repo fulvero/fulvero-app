@@ -1,4 +1,4 @@
-namespace LShopOzonWebReact.Api.Billing;
+namespace Fulvero.Api.Billing;
 
 public class YooKassaOptions
 {

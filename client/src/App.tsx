@@ -3391,21 +3391,34 @@ function App() {
                             Закупочный
                           </button>
                         </span>
-                      ) : item.productType !== 'Purchase' ? (
-                        <span className="muted-text">Поставщик только для закупочных</span>
+                      ) : item.productType === 'Production' ? (
+                        <span className="product-type-actions">
+                          <span className="muted-text">Производственный товар</span>
+                          <button type="button" onClick={() => updateProductType(item, 'Purchase')}>
+                            Сделать закупочным
+                          </button>
+                        </span>
                       ) : (productSupplierLinks[item.productId] ?? []).length > 0 ? (
                         <span className="supplier-link-actions">
                           <button type="button" onClick={() => openSupplierModal(item)}>
                             Поставщики: {(productSupplierLinks[item.productId] ?? []).length}
+                          </button>
+                          <button type="button" onClick={() => updateProductType(item, 'Production')}>
+                            Сделать производственным
                           </button>
                           <button type="button" className="tiny-danger" onClick={() => deleteSupplierLinks(item)}>
                             Удалить все
                           </button>
                         </span>
                       ) : (
-                        <button type="button" onClick={() => openSupplierModal(item)}>
-                          Добавить поставщика
-                        </button>
+                        <span className="supplier-link-actions">
+                          <button type="button" onClick={() => openSupplierModal(item)}>
+                            Добавить поставщика
+                          </button>
+                          <button type="button" onClick={() => updateProductType(item, 'Production')}>
+                            Сделать производственным
+                          </button>
+                        </span>
                       )}
                     </span>
                   </div>
@@ -4587,7 +4600,7 @@ function App() {
 }
 
 function getTaskNotificationStorageKey(userId: string, kind: 'new' | 'in-progress') {
-  return `lshop:${userId}:seen-production-${kind}-tasks`
+  return `Fulvero:${userId}:seen-production-${kind}-tasks`
 }
 
 function readStringListFromStorage(key: string) {

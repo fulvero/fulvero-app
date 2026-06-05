@@ -1,4 +1,4 @@
-namespace LShopOzonWebReact.Api.Models;
+namespace Fulvero.Api.Models;
 
 public class ChatMessage
 {

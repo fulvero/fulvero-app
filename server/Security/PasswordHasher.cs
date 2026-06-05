@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace LShopOzonWebReact.Api.Security;
+namespace Fulvero.Api.Security;
 
 public static class PasswordHasher
 {

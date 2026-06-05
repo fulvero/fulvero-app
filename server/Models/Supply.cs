@@ -1,8 +1,10 @@
-namespace LShopOzonWebReact.Api.Models;
+namespace Fulvero.Api.Models;
 
 public class Supply
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
     public string Status { get; set; } = SupplyStatuses.Created;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? SentAt { get; set; }

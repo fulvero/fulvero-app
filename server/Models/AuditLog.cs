@@ -1,8 +1,10 @@
-namespace LShopOzonWebReact.Api.Models;
+namespace Fulvero.Api.Models;
 
 public class AuditLog
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
     public Guid? UserId { get; set; }
     public string UserName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;

@@ -1,4 +1,4 @@
-# Деплой LShopOzonWebReact
+# Деплой Fulvero
 
 Production-схема сделана через Docker Compose: один контейнер с ASP.NET Core + собранным React и отдельный контейнер PostgreSQL. Данные базы лежат в Docker volume `postgres_data`, поэтому при обновлении приложения не удаляются.
 

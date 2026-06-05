@@ -1,5 +1,5 @@
 <Solution>
   <Folder Name="/server/">
-    <Project Path="server/LShopOzonWebReact.Api.csproj" />
+    <Project Path="server/Fulvero.Api.csproj" />
   </Folder>
 </Solution>

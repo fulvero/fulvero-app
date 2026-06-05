@@ -6,12 +6,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using System.IO.Compression;
-using LShopOzonWebReact.Api.Billing;
-using LShopOzonWebReact.Api.Data;
-using LShopOzonWebReact.Api.Hubs;
-using LShopOzonWebReact.Api.Models;
-using LShopOzonWebReact.Api.Ozon;
-using LShopOzonWebReact.Api.Security;
+using Fulvero.Api.Billing;
+using Fulvero.Api.Data;
+using Fulvero.Api.Hubs;
+using Fulvero.Api.Models;
+using Fulvero.Api.Ozon;
+using Fulvero.Api.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -595,9 +595,11 @@ app.MapGet("/api/admin/audit-logs", async (
     string? search,
     string? action,
     string? entityType,
-    AppDbContext db) =>
+    AppDbContext db,
+    ClaimsPrincipal principal) =>
 {
-    var query = db.AuditLogs.AsNoTracking();
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var query = db.AuditLogs.AsNoTracking().Where(log => log.CompanyId == companyId);
 
     if (!string.IsNullOrWhiteSpace(search))
     {
@@ -636,10 +638,12 @@ app.MapGet("/api/admin/audit-logs", async (
         .ToListAsync();
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
-app.MapGet("/api/admin/audit-logs/export", async (AppDbContext db) =>
+app.MapGet("/api/admin/audit-logs/export", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var logs = await db.AuditLogs
         .AsNoTracking()
+        .Where(log => log.CompanyId == companyId)
         .OrderByDescending(log => log.CreatedAt)
         .Take(5000)
         .ToListAsync();
@@ -1016,7 +1020,7 @@ app.MapPost("/api/chat/{userId:guid}/messages", async (
         message.CreatedAt,
         true);
 
-    await hub.Clients.All.SendAsync("ChatMessagesChanged", message.SenderId, message.ReceiverId);
+    await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ChatMessagesChanged", message.SenderId, message.ReceiverId);
 
     return Results.Created($"/api/chat/{userId}/messages/{message.Id}", result);
 }).DisableAntiforgery().RequireAuthorization();
@@ -1037,7 +1041,17 @@ app.MapGet("/api/chat/messages/{id:guid}/attachment", async (
         return Results.Unauthorized();
     }
 
-    var message = await db.ChatMessages.AsNoTracking().FirstOrDefaultAsync(message => message.Id == id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var companyUserIds = db.Users
+        .AsNoTracking()
+        .Where(user => user.CompanyId == companyId)
+        .Select(user => user.Id);
+    var message = await db.ChatMessages
+        .AsNoTracking()
+        .FirstOrDefaultAsync(message =>
+            message.Id == id &&
+            companyUserIds.Contains(message.SenderId) &&
+            companyUserIds.Contains(message.ReceiverId));
     if (message is null || message.AttachmentContent is null || string.IsNullOrWhiteSpace(message.AttachmentFileName))
     {
         return Results.NotFound();
@@ -1069,7 +1083,15 @@ app.MapDelete("/api/chat/messages/{id:guid}", async (
         return Results.Unauthorized();
     }
 
-    var message = await db.ChatMessages.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var companyUserIds = db.Users
+        .AsNoTracking()
+        .Where(user => user.CompanyId == companyId)
+        .Select(user => user.Id);
+    var message = await db.ChatMessages.FirstOrDefaultAsync(message =>
+        message.Id == id &&
+        companyUserIds.Contains(message.SenderId) &&
+        companyUserIds.Contains(message.ReceiverId));
     if (message is null)
     {
         return Results.NotFound();
@@ -1083,7 +1105,7 @@ app.MapDelete("/api/chat/messages/{id:guid}", async (
 
     db.ChatMessages.Remove(message);
     await db.SaveChangesAsync();
-    await hub.Clients.All.SendAsync("ChatMessagesChanged", message.SenderId, message.ReceiverId);
+    await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ChatMessagesChanged", message.SenderId, message.ReceiverId);
 
     return Results.NoContent();
 }).RequireAuthorization();
@@ -1371,7 +1393,8 @@ app.MapGet("/api/production/files", async (string? search, AppDbContext db, Clai
         return Results.Forbid();
     }
 
-    var query = db.ProductionFiles.AsNoTracking();
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var query = db.ProductionFiles.AsNoTracking().Where(file => file.CompanyId == companyId);
 
     if (!string.IsNullOrWhiteSpace(search))
     {
@@ -1417,9 +1440,10 @@ app.MapPost("/api/production/files", async (
         return Results.BadRequest("Файл обязателен.");
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var ozonProductId = long.TryParse(form["ozonProductId"], out var productId) ? productId : (long?)null;
     if (!ozonProductId.HasValue
-        || !await ProductSettingSync.HasTypeAsync(db, CompanyAccess.GetCompanyId(principal), ozonProductId.Value, ProductTypes.Production))
+        || !await ProductSettingSync.HasTypeAsync(db, companyId, ozonProductId.Value, ProductTypes.Production))
     {
         return Results.BadRequest("Файлы производства можно добавлять только к производственным товарам.");
     }
@@ -1430,6 +1454,7 @@ app.MapPost("/api/production/files", async (
 
     var productionFile = new ProductionFile
     {
+        CompanyId = companyId,
         OzonProductId = ozonProductId,
         OfferId = form["offerId"].ToString().Trim(),
         ProductName = form["productName"].ToString().Trim(),
@@ -1455,9 +1480,10 @@ app.MapPost("/api/production/files", async (
         productionFile.CreatedAt));
 }).DisableAntiforgery().RequireAuthorization();
 
-app.MapGet("/api/production/files/{id:guid}/download", async (Guid id, AppDbContext db) =>
+app.MapGet("/api/production/files/{id:guid}/download", async (Guid id, AppDbContext db, ClaimsPrincipal principal) =>
 {
-    var file = await db.ProductionFiles.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var file = await db.ProductionFiles.FirstOrDefaultAsync(file => file.Id == id && file.CompanyId == companyId);
     if (file is null)
     {
         return Results.NotFound();
@@ -1466,9 +1492,10 @@ app.MapGet("/api/production/files/{id:guid}/download", async (Guid id, AppDbCont
     return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization();
 
-app.MapDelete("/api/production/files/{id:guid}", async (Guid id, AppDbContext db) =>
+app.MapDelete("/api/production/files/{id:guid}", async (Guid id, AppDbContext db, ClaimsPrincipal principal) =>
 {
-    var file = await db.ProductionFiles.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var file = await db.ProductionFiles.FirstOrDefaultAsync(file => file.Id == id && file.CompanyId == companyId);
     if (file is null)
     {
         return Results.NotFound();
@@ -1490,6 +1517,8 @@ app.MapGet("/api/production/tasks", async (string? status, AppDbContext db, Clai
     IQueryable<ProductionTask> query = db.ProductionTasks
         .AsNoTracking()
         .Include(task => task.Items);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    query = query.Where(task => task.CompanyId == companyId);
 
     if (!string.IsNullOrWhiteSpace(status))
     {
@@ -1533,12 +1562,13 @@ app.MapGet("/api/production/tasks", async (string? status, AppDbContext db, Clai
     return Results.Ok(tasks);
 }).RequireAuthorization();
 
-app.MapGet("/api/production/tasks/archive/export", async (AppDbContext db) =>
+app.MapGet("/api/production/tasks/archive/export", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var tasks = await db.ProductionTasks
         .AsNoTracking()
         .Include(task => task.Items)
-        .Where(task => task.IsArchived)
+        .Where(task => task.CompanyId == companyId && task.IsArchived)
         .OrderByDescending(task => task.CompletedAt ?? task.CreatedAt)
         .ToListAsync();
 
@@ -1610,6 +1640,7 @@ app.MapPost("/api/production/tasks", async (
     var firstItem = requestItems[0];
     var task = new ProductionTask
     {
+        CompanyId = companyId,
         OzonProductId = firstItem.OzonProductId,
         OfferId = firstItem.OfferId.Trim(),
         ProductName = requestItems.Count == 1
@@ -1652,7 +1683,7 @@ app.MapPost("/api/production/tasks", async (
             item.RequiredQuantity,
             item.ActualQuantity)).ToList());
 
-    await hub.Clients.All.SendAsync("ProductionTasksChanged", result);
+    await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.Created($"/api/production/tasks/{task.Id}", result);
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
@@ -1663,7 +1694,8 @@ app.MapPut("/api/production/tasks/{id:guid}/start", async (
     ClaimsPrincipal principal,
     IHubContext<AppHub> hub) =>
 {
-    var task = await db.ProductionTasks.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var task = await db.ProductionTasks.FirstOrDefaultAsync(task => task.Id == id && task.CompanyId == companyId);
     if (task is null)
     {
         return Results.NotFound();
@@ -1686,7 +1718,7 @@ app.MapPut("/api/production/tasks/{id:guid}/start", async (
     task.StartedAt ??= DateTimeOffset.UtcNow;
     AuditLogWriter.Add(db, principal, "Задача взята в работу", "ProductionTask", task.Id.ToString(), task.ProductName);
     await db.SaveChangesAsync();
-    await hub.Clients.All.SendAsync("ProductionTasksChanged");
+    await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.NoContent();
 }).RequireAuthorization();
@@ -1697,7 +1729,8 @@ app.MapPut("/api/production/tasks/{id:guid}/defer", async (
     ClaimsPrincipal principal,
     IHubContext<AppHub> hub) =>
 {
-    var task = await db.ProductionTasks.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var task = await db.ProductionTasks.FirstOrDefaultAsync(task => task.Id == id && task.CompanyId == companyId);
     if (task is null)
     {
         return Results.NotFound();
@@ -1712,7 +1745,7 @@ app.MapPut("/api/production/tasks/{id:guid}/defer", async (
     task.DeferredAt = DateTimeOffset.UtcNow;
     AuditLogWriter.Add(db, principal, "Задача отложена", "ProductionTask", task.Id.ToString(), task.ProductName);
     await db.SaveChangesAsync();
-    await hub.Clients.All.SendAsync("ProductionTasksChanged");
+    await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.NoContent();
 }).RequireAuthorization();
@@ -1729,9 +1762,10 @@ app.MapPut("/api/production/tasks/{id:guid}/complete", async (
         return Results.BadRequest("Фактическое количество не может быть меньше нуля.");
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var task = await db.ProductionTasks
         .Include(task => task.Items)
-        .FirstOrDefaultAsync(task => task.Id == id);
+        .FirstOrDefaultAsync(task => task.Id == id && task.CompanyId == companyId);
     if (task is null)
     {
         return Results.NotFound();
@@ -1770,7 +1804,7 @@ app.MapPut("/api/production/tasks/{id:guid}/complete", async (
     task.CompletedAt = DateTimeOffset.UtcNow;
     AuditLogWriter.Add(db, principal, "Задача завершена", "ProductionTask", task.Id.ToString(), $"{task.ProductName}. Факт: {task.ActualQuantity}");
     await db.SaveChangesAsync();
-    await hub.Clients.All.SendAsync("ProductionTasksChanged");
+    await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.NoContent();
 }).RequireAuthorization();
@@ -1781,7 +1815,8 @@ app.MapPut("/api/production/tasks/{id:guid}/archive", async (
     ClaimsPrincipal principal,
     IHubContext<AppHub> hub) =>
 {
-    var task = await db.ProductionTasks.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var task = await db.ProductionTasks.FirstOrDefaultAsync(task => task.Id == id && task.CompanyId == companyId);
     if (task is null)
     {
         return Results.NotFound();
@@ -1796,7 +1831,7 @@ app.MapPut("/api/production/tasks/{id:guid}/archive", async (
     task.ArchivedAt = DateTimeOffset.UtcNow;
     AuditLogWriter.Add(db, principal, "Задача архивирована", "ProductionTask", task.Id.ToString(), task.ProductName);
     await db.SaveChangesAsync();
-    await hub.Clients.All.SendAsync("ProductionTasksChanged");
+    await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.NoContent();
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
@@ -1807,7 +1842,8 @@ app.MapDelete("/api/production/tasks/{id:guid}", async (
     ClaimsPrincipal principal,
     IHubContext<AppHub> hub) =>
 {
-    var task = await db.ProductionTasks.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var task = await db.ProductionTasks.FirstOrDefaultAsync(task => task.Id == id && task.CompanyId == companyId);
     if (task is null)
     {
         return Results.NotFound();
@@ -1821,7 +1857,7 @@ app.MapDelete("/api/production/tasks/{id:guid}", async (
     db.ProductionTasks.Remove(task);
     AuditLogWriter.Add(db, principal, "Удаление задачи", "ProductionTask", task.Id.ToString(), task.ProductName);
     await db.SaveChangesAsync();
-    await hub.Clients.All.SendAsync("ProductionTasksChanged");
+    await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.NoContent();
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
@@ -1833,16 +1869,18 @@ app.MapGet("/api/supplies", async (AppDbContext db, ClaimsPrincipal principal) =
         return Results.Forbid();
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var supplies = await db.Supplies
         .AsNoTracking()
         .Include(supply => supply.Items)
+        .Where(supply => supply.CompanyId == companyId)
         .OrderByDescending(supply => supply.CreatedAt)
         .ToListAsync();
 
     var supplyIds = supplies.Select(supply => supply.Id.ToString()).ToList();
     var histories = await db.AuditLogs
         .AsNoTracking()
-        .Where(log => log.EntityType == "Supply" && supplyIds.Contains(log.EntityId))
+        .Where(log => log.CompanyId == companyId && log.EntityType == "Supply" && supplyIds.Contains(log.EntityId))
         .OrderByDescending(log => log.CreatedAt)
         .Select(log => new
         {
@@ -1899,8 +1937,10 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
         return Results.BadRequest("Добавьте хотя бы один товар в поставку.");
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var supply = new Supply
     {
+        CompanyId = companyId,
         Status = SupplyStatuses.Created,
         Items = request.Items.Select(item => new SupplyItem
         {
@@ -1925,7 +1965,6 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
         return Results.BadRequest("Для поставщика укажите и название, и ссылку.");
     }
 
-    var companyId = CompanyAccess.GetCompanyId(principal);
     var purchaseIds = supply.Items.Where(item => item.OzonProductId.HasValue).Select(item => item.OzonProductId!.Value);
     if (!await ProductSettingSync.AllHaveTypeAsync(db, companyId, purchaseIds, ProductTypes.Purchase))
     {
@@ -2001,8 +2040,10 @@ app.MapPost("/api/supplies/import", async (
         return Results.BadRequest("В файле нет строк для импорта.");
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var supply = new Supply
     {
+        CompanyId = companyId,
         Status = SupplyStatuses.Created,
         Items = importedItems.Select(item => new SupplyItem
         {
@@ -2022,7 +2063,14 @@ app.MapPost("/api/supplies/import", async (
         return Results.BadRequest("Проверьте название и количество в Excel-файле.");
     }
 
+    var purchaseIds = supply.Items.Where(item => item.OzonProductId.HasValue).Select(item => item.OzonProductId!.Value);
+    if (!await ProductSettingSync.AllHaveTypeAsync(db, companyId, purchaseIds, ProductTypes.Purchase))
+    {
+        return Results.BadRequest("В поставку можно добавить только товары с типом \"Закупочный\".");
+    }
+
     db.Supplies.Add(supply);
+    await SupplierLinkSync.AddFromSupplyItemsAsync(db, companyId, supply.Items);
     AuditLogWriter.Add(db, principal, "Импорт поставки из Excel", "Supply", supply.Id.ToString(), $"Товаров: {supply.Items.Count}");
     await db.SaveChangesAsync(cancellationToken);
 
@@ -2035,7 +2083,8 @@ app.MapPut("/api/supplies/{id:guid}/status", async (
     AppDbContext db,
     ClaimsPrincipal principal) =>
 {
-    var supply = await db.Supplies.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var supply = await db.Supplies.FirstOrDefaultAsync(supply => supply.Id == id && supply.CompanyId == companyId);
     if (supply is null)
     {
         return Results.NotFound();
@@ -2083,9 +2132,10 @@ app.MapPut("/api/supplies/{id:guid}", async (
     AppDbContext db,
     ClaimsPrincipal principal) =>
 {
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var supply = await db.Supplies
         .Include(item => item.Items)
-        .SingleOrDefaultAsync(item => item.Id == id);
+        .SingleOrDefaultAsync(item => item.Id == id && item.CompanyId == companyId);
     if (supply is null)
     {
         return Results.NotFound();
@@ -2130,7 +2180,6 @@ app.MapPut("/api/supplies/{id:guid}", async (
         return Results.BadRequest("Для поставщика укажите и название, и ссылку.");
     }
 
-    var companyId = CompanyAccess.GetCompanyId(principal);
     var purchaseIds = updatedItems.Where(item => item.OzonProductId.HasValue).Select(item => item.OzonProductId!.Value);
     if (!await ProductSettingSync.AllHaveTypeAsync(db, companyId, purchaseIds, ProductTypes.Purchase))
     {
@@ -2162,9 +2211,11 @@ app.MapPut("/api/supply-items/{id:guid}/actual-order", async (
         return Results.BadRequest("Факт заказа не может быть меньше нуля.");
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var item = await db.SupplyItems
         .Include(supplyItem => supplyItem.Supply)
-        .SingleOrDefaultAsync(supplyItem => supplyItem.Id == id);
+        .SingleOrDefaultAsync(supplyItem =>
+            supplyItem.Id == id && supplyItem.Supply.CompanyId == companyId);
     if (item is null)
     {
         return Results.NotFound();
@@ -2183,7 +2234,8 @@ app.MapPut("/api/supply-items/{id:guid}/actual-order", async (
 
 app.MapPut("/api/supplies/{id:guid}/archive", async (Guid id, AppDbContext db, ClaimsPrincipal principal) =>
 {
-    var supply = await db.Supplies.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var supply = await db.Supplies.FirstOrDefaultAsync(supply => supply.Id == id && supply.CompanyId == companyId);
     if (supply is null)
     {
         return Results.NotFound();
@@ -2199,7 +2251,8 @@ app.MapPut("/api/supplies/{id:guid}/archive", async (Guid id, AppDbContext db, C
 
 app.MapDelete("/api/supplies/{id:guid}", async (Guid id, AppDbContext db, ClaimsPrincipal principal) =>
 {
-    var supply = await db.Supplies.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var supply = await db.Supplies.FirstOrDefaultAsync(supply => supply.Id == id && supply.CompanyId == companyId);
     if (supply is null)
     {
         return Results.NotFound();
@@ -2223,7 +2276,10 @@ app.MapPut("/api/supplies/items/{id:guid}/replace-reserve", async (
     AppDbContext db,
     ClaimsPrincipal principal) =>
 {
-    var item = await db.SupplyItems.FindAsync(id);
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var item = await db.SupplyItems
+        .Include(item => item.Supply)
+        .FirstOrDefaultAsync(item => item.Id == id && item.Supply.CompanyId == companyId);
     if (item is null)
     {
         return Results.NotFound();
@@ -2239,11 +2295,16 @@ app.MapPut("/api/supplies/items/{id:guid}/replace-reserve", async (
         return Results.BadRequest("Выберите постоянный товар.");
     }
 
+    if (!await ProductSettingSync.HasTypeAsync(db, companyId, request.OzonProductId, ProductTypes.Purchase))
+    {
+        return Results.BadRequest("В поставку можно добавить только товары с типом \"Закупочный\".");
+    }
+
     item.OzonProductId = request.OzonProductId;
     item.OfferId = request.OfferId.Trim();
     item.ProductName = request.ProductName.Trim();
     item.IsReserve = false;
-    await SupplierLinkSync.AddFromSupplyItemsAsync(db, CompanyAccess.GetCompanyId(principal), [item]);
+    await SupplierLinkSync.AddFromSupplyItemsAsync(db, companyId, [item]);
     AuditLogWriter.Add(db, principal, "Замена резервного товара", "SupplyItem", item.Id.ToString(), item.ProductName);
     AuditLogWriter.Add(db, principal, "Замена резервного товара", "Supply", item.SupplyId.ToString(), item.ProductName);
     await db.SaveChangesAsync();
@@ -2258,9 +2319,11 @@ app.MapGet("/api/supplies/analytics", async (AppDbContext db, ClaimsPrincipal pr
         return Results.Forbid();
     }
 
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var items = await db.SupplyItems
         .AsNoTracking()
         .Include(item => item.Supply)
+        .Where(item => item.Supply.CompanyId == companyId)
         .ToListAsync();
 
     return Results.Ok(items
@@ -2298,11 +2361,13 @@ app.MapGet("/api/supplies/analytics", async (AppDbContext db, ClaimsPrincipal pr
 })
     .RequireAuthorization();
 
-app.MapGet("/api/supplies/analytics/export", async (AppDbContext db) =>
+app.MapGet("/api/supplies/analytics/export", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
+    var companyId = CompanyAccess.GetCompanyId(principal);
     var items = await db.SupplyItems
         .AsNoTracking()
         .Include(item => item.Supply)
+        .Where(item => item.Supply.CompanyId == companyId)
         .ToListAsync();
 
     var rows = items
@@ -2771,6 +2836,7 @@ static class AuditLogWriter
 
         db.AuditLogs.Add(new AuditLog
         {
+            CompanyId = CompanyAccess.GetCompanyId(principal),
             UserId = userId,
             UserName = principal.FindFirstValue(ClaimTypes.Name) ?? string.Empty,
             DisplayName = principal.FindFirstValue("display_name") ?? string.Empty,

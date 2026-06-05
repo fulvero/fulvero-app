@@ -8,9 +8,9 @@ RUN npm run build
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS server-build
 WORKDIR /src
 COPY server/*.csproj ./server/
-RUN dotnet restore ./server/LShopOzonWebReact.Api.csproj
+RUN dotnet restore ./server/Fulvero.Api.csproj
 COPY server/ ./server/
-RUN dotnet publish ./server/LShopOzonWebReact.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish ./server/Fulvero.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
@@ -18,4 +18,4 @@ COPY --from=server-build /app/publish ./
 COPY --from=client-build /src/client/dist ./wwwroot
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "LShopOzonWebReact.Api.dll"]
+ENTRYPOINT ["dotnet", "Fulvero.Api.dll"]
