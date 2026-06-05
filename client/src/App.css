@@ -2323,8 +2323,9 @@
   padding: 14px 20px 0;
 }
 
-.user-search-bar input {
+.user-search-input {
   width: 100%;
+  min-height: 44px;
   box-sizing: border-box;
   border: 1px solid #cfd6e3;
   border-radius: 8px;
@@ -2332,6 +2333,18 @@
   color: #121826;
   background: #ffffff;
   font: inherit;
+  outline: none;
+  white-space: pre-wrap;
+}
+
+.user-search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.user-search-input:empty::before {
+  content: attr(data-placeholder);
+  color: #98a2b3;
 }
 
 .user-search-bar span {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import * as signalR from '@microsoft/signalr'
 import fulveroLogo from './assets/fulvero-logo.png'
@@ -424,12 +424,6 @@ function App() {
   const [profileStatus, setProfileStatus] = useState('')
   const [chatUsers, setChatUsers] = useState<User[]>([])
   const [userSearch, setUserSearch] = useState('')
-  const [userSearchReady, setUserSearchReady] = useState(false)
-  const userSearchManualInputRef = useRef(false)
-  const userSearchInputName = useMemo(
-    () => `fulvero-search-${Math.random().toString(36).slice(2)}-${Date.now()}`,
-    [],
-  )
   const [selectedChatUserId, setSelectedChatUserId] = useState('')
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatText, setChatText] = useState('')
@@ -4427,38 +4421,23 @@ function App() {
               </form>
 
               <div className="user-search-bar">
-                <input
-                  name={userSearchInputName}
-                  type="search"
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  data-form-type="other"
-                  readOnly={!userSearchReady}
+                <div
+                  className="user-search-input"
+                  contentEditable
+                  role="textbox"
+                  aria-label="Поиск по пользователям"
+                  data-placeholder="Поиск по пользователям"
                   spellCheck={false}
-                  value={userSearch}
-                  placeholder="Поиск по пользователям"
-                  onFocus={(event) => {
-                    setUserSearchReady(true)
-                    event.currentTarget.value = ''
-                    setUserSearch('')
-                  }}
-                  onMouseDown={() => setUserSearchReady(true)}
-                  onKeyDown={() => {
-                    userSearchManualInputRef.current = true
-                  }}
-                  onPaste={() => {
-                    userSearchManualInputRef.current = true
-                  }}
-                  onChange={(event) => {
-                    if (!userSearchManualInputRef.current) {
-                      event.currentTarget.value = ''
-                      setUserSearch('')
-                      return
+                  onInput={(event) => setUserSearch(event.currentTarget.textContent ?? '')}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
                     }
-
-                    setUserSearch(event.target.value)
-                    userSearchManualInputRef.current = false
+                  }}
+                  onPaste={(event) => {
+                    event.preventDefault()
+                    const text = event.clipboardData.getData('text/plain')
+                    document.execCommand('insertText', false, text)
                   }}
                 />
                 <span>Найдено: {filteredUsers.length}</span>
