@@ -425,6 +425,7 @@ function App() {
   const [chatUsers, setChatUsers] = useState<User[]>([])
   const [userSearch, setUserSearch] = useState('')
   const [userSearchReady, setUserSearchReady] = useState(false)
+  const userSearchManualInputRef = useRef(false)
   const userSearchInputName = useMemo(
     () => `fulvero-search-${Math.random().toString(36).slice(2)}-${Date.now()}`,
     [],
@@ -528,7 +529,6 @@ function App() {
     .sort((left, right) => right.quantity - left.quantity)
   const dashboardSalesDays = buildDashboardSalesDays(analytics)
   const maxDashboardSales = Math.max(...dashboardSalesDays.map((item) => item.quantity), 1)
-  const maxDashboardRevenue = Math.max(...dashboardSalesDays.map((item) => item.revenue), 1)
   const urgentStockItems = getUrgentStockItems(ozonStocks, analytics)
   const urgentProductionItems = urgentStockItems.filter((item) =>
     productionProducts.some((product) => product.productId === item.productId),
@@ -3017,12 +3017,6 @@ function App() {
                             opacity: day.quantity > 0 ? 1 : 0.28,
                           }}
                         />
-                        <em
-                          style={{
-                            height: `${Math.max(4, Math.round((day.revenue / maxDashboardRevenue) * 100))}%`,
-                            opacity: day.revenue > 0 ? 0.45 : 0.14,
-                          }}
-                        />
                         {(index === 0 || index === dashboardSalesDays.length - 1 || index % 7 === 0) && (
                           <small>{formatDateShort(day.date)}</small>
                         )}
@@ -3456,7 +3450,10 @@ function App() {
                   <span>{productsSubTab === 'editor' ? 'Тип товара' : 'Поставщик'}</span>
                 </div>
                 {productsBySubTab.map((item) => (
-                  <div className="table-row ozon-product-row" key={item.productId}>
+                  <div
+                    className={`table-row ozon-product-row ${productsSubTab === 'editor' ? 'product-editor-row' : ''}`}
+                    key={item.productId}
+                  >
                     <span>
                       <strong>{item.name}</strong>
                       <small>{item.productId}</small>
@@ -4443,12 +4440,26 @@ function App() {
                   placeholder="Поиск по пользователям"
                   onFocus={(event) => {
                     setUserSearchReady(true)
-                    if (event.currentTarget.value && event.currentTarget.value !== userSearch) {
-                      setUserSearch('')
-                    }
+                    event.currentTarget.value = ''
+                    setUserSearch('')
                   }}
                   onMouseDown={() => setUserSearchReady(true)}
-                  onChange={(event) => setUserSearch(event.target.value)}
+                  onKeyDown={() => {
+                    userSearchManualInputRef.current = true
+                  }}
+                  onPaste={() => {
+                    userSearchManualInputRef.current = true
+                  }}
+                  onChange={(event) => {
+                    if (!userSearchManualInputRef.current) {
+                      event.currentTarget.value = ''
+                      setUserSearch('')
+                      return
+                    }
+
+                    setUserSearch(event.target.value)
+                    userSearchManualInputRef.current = false
+                  }}
                 />
                 <span>Найдено: {filteredUsers.length}</span>
               </div>

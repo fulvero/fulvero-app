@@ -1049,6 +1049,10 @@
   grid-template-columns: minmax(260px, 2fr) minmax(120px, 0.7fr) minmax(100px, 0.6fr) minmax(110px, 0.6fr) minmax(130px, 0.7fr) minmax(140px, 0.7fr);
 }
 
+.product-editor-row {
+  grid-template-columns: minmax(320px, 2fr) minmax(130px, 0.7fr) minmax(90px, 0.45fr) minmax(100px, 0.5fr) minmax(130px, 0.65fr) minmax(230px, 0.9fr);
+}
+
 .supplier-link-actions {
   display: inline-flex;
   align-items: center;
@@ -1063,10 +1067,10 @@
 }
 
 .product-editor-actions {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) max-content;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
 .product-editor-actions button {
@@ -1077,8 +1081,11 @@
 
 .product-type-badge {
   display: inline-flex;
+  justify-content: center;
   align-items: center;
   min-height: 30px;
+  width: 100%;
+  box-sizing: border-box;
   border: 1px solid #d9dee7;
   border-radius: 999px;
   padding: 5px 10px;
@@ -1275,8 +1282,15 @@
 }
 
 .compact-button {
+  border: 0;
+  border-radius: 8px;
   padding: 8px 12px;
   min-height: 34px;
+  color: #ffffff;
+  background: #2563eb;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .attention-list,
@@ -1318,18 +1332,32 @@
   flex-wrap: wrap;
 }
 
+.dashboard-card > button,
+.dashboard-actions button {
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-height: 38px;
+  color: #ffffff;
+  background: #2563eb;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .sales-chart {
   display: grid;
-  grid-template-columns: repeat(30, minmax(10px, 1fr));
+  grid-template-columns: repeat(30, minmax(18px, 1fr));
   align-items: end;
-  gap: 6px;
-  height: 190px;
+  gap: 5px;
+  min-height: 190px;
+  overflow-x: auto;
   border: 1px solid #e4e7ec;
   border-radius: 8px;
-  padding: 16px 14px 28px;
+  padding: 18px 16px 30px;
   background:
-    linear-gradient(180deg, rgba(37, 99, 235, 0.07), rgba(255, 255, 255, 0) 45%),
-    repeating-linear-gradient(180deg, transparent 0, transparent 37px, #edf2f7 38px),
+    linear-gradient(180deg, rgba(37, 99, 235, 0.05), rgba(255, 255, 255, 0) 55%),
+    repeating-linear-gradient(180deg, transparent 0, transparent 39px, rgba(148, 163, 184, 0.16) 40px),
     #ffffff;
 }
 
@@ -1337,29 +1365,20 @@
   position: relative;
   display: grid;
   align-items: end;
-  height: 100%;
+  height: 170px;
   min-width: 0;
 }
 
-.sales-chart-day i,
-.sales-chart-day em {
+.sales-chart-day i {
   grid-area: 1 / 1;
   align-self: end;
   display: block;
-  width: 100%;
-  min-height: 4px;
-  border-radius: 999px 999px 4px 4px;
-}
-
-.sales-chart-day i {
-  background: linear-gradient(180deg, #2563eb, #14b8a6);
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
-}
-
-.sales-chart-day em {
-  width: 45%;
+  width: 70%;
+  min-height: 5px;
   justify-self: center;
-  background: #f59e0b;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #2563eb, #38bdf8);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.16);
 }
 
 .sales-chart-day small {
