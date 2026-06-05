@@ -324,7 +324,7 @@ const defaultUserFeatures = ['production', 'production.products', 'production.ta
 type TabId = (typeof tabs)[number]['id']
 type ProductionSubTab = 'products' | 'tasks' | 'inProgress' | 'deferred' | 'completed' | 'archive'
 type SupplySubTab = 'create' | 'editor' | 'all' | 'archive' | 'analytics'
-type ProductsSubTab = 'settings' | 'production' | 'purchase'
+type ProductsSubTab = 'settings' | 'production' | 'purchase' | 'editor'
 type AnalyticsSubTab = 'summary' | 'topProducts'
 
 function App() {
@@ -364,6 +364,8 @@ function App() {
   const [productSupplierLinks, setProductSupplierLinks] = useState<Record<number, ProductSupplierLink[]>>({})
   const [supplierModalProduct, setSupplierModalProduct] = useState<OzonProduct | null>(null)
   const [supplierDrafts, setSupplierDrafts] = useState<SupplierLinkDraft[]>([])
+  const [productTypeModalProduct, setProductTypeModalProduct] = useState<OzonProduct | null>(null)
+  const [productTypeDraft, setProductTypeDraft] = useState<ProductType>('Production')
   const [productsSubTab, setProductsSubTab] = useState<ProductsSubTab>('settings')
   const [analyticsSubTab, setAnalyticsSubTab] = useState<AnalyticsSubTab>('summary')
   const [productionSearch, setProductionSearch] = useState('')
@@ -467,7 +469,9 @@ function App() {
       ? unsetProducts
       : productsSubTab === 'production'
         ? productionProducts
-        : purchaseProducts
+        : productsSubTab === 'purchase'
+          ? purchaseProducts
+          : ozonProducts
   const normalizedTaskSearch = taskSearch.trim().toLowerCase()
   const filteredProductionTasks = normalizedTaskSearch
     ? productionTasks.filter((task) => matchesProductionTask(task, normalizedTaskSearch))
@@ -1535,9 +1539,14 @@ function App() {
     setOzonStatus('Поставщики товара удалены')
   }
 
+  function openProductTypeModal(product: OzonProduct) {
+    setProductTypeModalProduct(product)
+    setProductTypeDraft(product.productType || 'Production')
+  }
+
   async function updateProductType(product: OzonProduct, productType: ProductType) {
     if (!productType) {
-      return
+      return false
     }
 
     const response = await fetch(`/api/product-settings/${product.productId}/type`, {
@@ -1555,13 +1564,25 @@ function App() {
 
     if (!response.ok) {
       setOzonStatus(getApiErrorMessage(await response.text(), 'Не удалось сохранить тип товара'))
-      return
+      return false
     }
 
     setOzonProducts((current) =>
       current.map((item) => (item.productId === product.productId ? { ...item, productType } : item)),
     )
     setOzonStatus('Тип товара сохранен')
+    return true
+  }
+
+  async function saveProductTypeFromModal() {
+    if (!productTypeModalProduct || !productTypeDraft) {
+      return
+    }
+
+    const isSaved = await updateProductType(productTypeModalProduct, productTypeDraft)
+    if (isSaved) {
+      setProductTypeModalProduct(null)
+    }
   }
 
   async function loadOzonStocks() {
@@ -2827,6 +2848,45 @@ function App() {
         </div>
       )}
 
+      {productTypeModalProduct && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" role="dialog" aria-modal="true">
+            <div className="modal-title-row">
+              <div>
+                <h3>Смена типа товара</h3>
+                <p>{productTypeModalProduct.offerId} · {productTypeModalProduct.name}</p>
+              </div>
+              <button type="button" onClick={() => setProductTypeModalProduct(null)}>
+                Закрыть
+              </button>
+            </div>
+
+            <div className="product-type-picker">
+              <button
+                type="button"
+                className={productTypeDraft === 'Production' ? 'active' : ''}
+                onClick={() => setProductTypeDraft('Production')}
+              >
+                Производственный
+              </button>
+              <button
+                type="button"
+                className={productTypeDraft === 'Purchase' ? 'active' : ''}
+                onClick={() => setProductTypeDraft('Purchase')}
+              >
+                Закупочный
+              </button>
+            </div>
+
+            <div className="supply-actions">
+              <button type="button" onClick={saveProductTypeFromModal}>
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showUrgentStockModal && (
         <div className="modal-backdrop" role="presentation">
           <div className="modal-card urgent-modal" role="dialog" aria-modal="true">
@@ -3366,6 +3426,13 @@ function App() {
                 >
                   Закупочные
                 </button>
+                <button
+                  type="button"
+                  className={productsSubTab === 'editor' ? 'active' : ''}
+                  onClick={() => setProductsSubTab('editor')}
+                >
+                  Редактор товаров
+                </button>
               </div>
 
               {ozonStatus && (
@@ -3386,7 +3453,7 @@ function App() {
                   <span>Фото</span>
                   <span>Цена</span>
                   <span>Ссылка на Ozon</span>
-                  <span>Поставщик</span>
+                  <span>{productsSubTab === 'editor' ? 'Тип товара' : 'Поставщик'}</span>
                 </div>
                 {productsBySubTab.map((item) => (
                   <div className="table-row ozon-product-row" key={item.productId}>
@@ -3413,7 +3480,16 @@ function App() {
                       )}
                     </span>
                     <span>
-                      {productsSubTab === 'settings' ? (
+                      {productsSubTab === 'editor' ? (
+                        <span className="product-editor-actions">
+                          <span className={`product-type-badge product-type-${item.productType || 'Unset'}`}>
+                            {formatProductType(item.productType)}
+                          </span>
+                          <button type="button" onClick={() => openProductTypeModal(item)}>
+                            Сменить тип
+                          </button>
+                        </span>
+                      ) : productsSubTab === 'settings' ? (
                         <span className="product-type-actions">
                           <button type="button" onClick={() => updateProductType(item, 'Production')}>
                             Производственный
@@ -3423,19 +3499,11 @@ function App() {
                           </button>
                         </span>
                       ) : item.productType === 'Production' ? (
-                        <span className="product-type-actions">
-                          <span className="muted-text">Производственный товар</span>
-                          <button type="button" onClick={() => updateProductType(item, 'Purchase')}>
-                            Сделать закупочным
-                          </button>
-                        </span>
+                        <span className="muted-text">Производственный товар</span>
                       ) : (productSupplierLinks[item.productId] ?? []).length > 0 ? (
                         <span className="supplier-link-actions">
                           <button type="button" onClick={() => openSupplierModal(item)}>
                             Поставщики: {(productSupplierLinks[item.productId] ?? []).length}
-                          </button>
-                          <button type="button" onClick={() => updateProductType(item, 'Production')}>
-                            Сделать производственным
                           </button>
                           <button type="button" className="tiny-danger" onClick={() => deleteSupplierLinks(item)}>
                             Удалить все
@@ -3445,9 +3513,6 @@ function App() {
                         <span className="supplier-link-actions">
                           <button type="button" onClick={() => openSupplierModal(item)}>
                             Добавить поставщика
-                          </button>
-                          <button type="button" onClick={() => updateProductType(item, 'Production')}>
-                            Сделать производственным
                           </button>
                         </span>
                       )}
@@ -5925,6 +5990,18 @@ function formatDateShort(value: string) {
     day: '2-digit',
     month: '2-digit',
   })
+}
+
+function formatProductType(value: ProductType) {
+  if (value === 'Production') {
+    return 'Производственный'
+  }
+
+  if (value === 'Purchase') {
+    return 'Закупочный'
+  }
+
+  return 'Не настроен'
 }
 
 function translateStatus(status: string) {
