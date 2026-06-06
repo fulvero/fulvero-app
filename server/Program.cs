@@ -11,6 +11,7 @@ using System.IO.Compression;
 using Fulvero.Api.Billing;
 using Fulvero.Api.Data;
 using Fulvero.Api.Hubs;
+using Fulvero.Api.Mail;
 using Fulvero.Api.Models;
 using Fulvero.Api.Ozon;
 using Fulvero.Api.Security;
@@ -30,6 +31,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 builder.Services.Configure<OzonOptions>(builder.Configuration.GetSection("Ozon"));
 builder.Services.Configure<YooKassaOptions>(builder.Configuration.GetSection("YooKassa"));
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
 builder.Services.AddHttpClient<OzonApiClient>((serviceProvider, client) =>
 {
     var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OzonOptions>>().Value;
@@ -39,6 +41,8 @@ builder.Services.AddHttpClient("YooKassa", client =>
 {
     client.BaseAddress = new Uri("https://api.yookassa.ru");
 });
+builder.Services.AddScoped<EmailSender>();
+builder.Services.AddHostedService<SubscriptionEmailReminderService>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -164,7 +168,12 @@ app.Use(async (context, next) =>
 
 app.MapHub<AppHub>("/hubs/live").RequireAuthorization();
 
-app.MapPost("/api/auth/register", async (RegisterCompanyRequest request, AppDbContext db, JwtTokenService tokenService) =>
+app.MapPost("/api/auth/register", async (
+    RegisterCompanyRequest request,
+    AppDbContext db,
+    JwtTokenService tokenService,
+    EmailSender emailSender,
+    CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.CompanyName)
         || string.IsNullOrWhiteSpace(request.UserName)
@@ -207,14 +216,20 @@ app.MapPost("/api/auth/register", async (RegisterCompanyRequest request, AppDbCo
 
     db.Companies.Add(company);
     db.Users.Add(admin);
-    await db.SaveChangesAsync();
+    await db.SaveChangesAsync(cancellationToken);
+    await SendRegistrationEmailAsync(emailSender, company, admin, cancellationToken);
 
     return Results.Created("/api/auth/register", new AuthResponse(
         tokenService.CreateToken(admin),
         UserResponses.Current(admin)));
 });
 
-app.MapPost("/api/setup/admin", async (RegisterCompanyRequest request, AppDbContext db, JwtTokenService tokenService) =>
+app.MapPost("/api/setup/admin", async (
+    RegisterCompanyRequest request,
+    AppDbContext db,
+    JwtTokenService tokenService,
+    EmailSender emailSender,
+    CancellationToken cancellationToken) =>
 {
     if (await db.Users.AnyAsync())
     {
@@ -252,7 +267,8 @@ app.MapPost("/api/setup/admin", async (RegisterCompanyRequest request, AppDbCont
 
     db.Companies.Add(company);
     db.Users.Add(admin);
-    await db.SaveChangesAsync();
+    await db.SaveChangesAsync(cancellationToken);
+    await SendRegistrationEmailAsync(emailSender, company, admin, cancellationToken);
 
     return Results.Created("/api/admin/users", new AuthResponse(
         tokenService.CreateToken(admin),
@@ -2649,6 +2665,7 @@ app.MapGet("/api/billing/status", async (AppDbContext db, ClaimsPrincipal princi
 app.MapPost("/api/billing/yookassa/webhook", async (
     HttpRequest request,
     AppDbContext db,
+    EmailSender emailSender,
     CancellationToken cancellationToken) =>
 {
     var body = await new StreamReader(request.Body).ReadToEndAsync(cancellationToken);
@@ -2673,15 +2690,21 @@ app.MapPost("/api/billing/yookassa/webhook", async (
         return Results.Ok();
     }
 
-    await BillingPayments.ApplySucceededYooKassaPaymentAsync(db, company, payment, cancellationToken);
+    var result = await BillingPayments.ApplySucceededYooKassaPaymentAsync(db, company, payment, cancellationToken);
 
     await db.SaveChangesAsync(cancellationToken);
+    if (result.SubscriptionExtended)
+    {
+        await SendPaymentSuccessEmailAsync(db, emailSender, company, result.PaidUntil, cancellationToken);
+    }
+
     return Results.Ok();
 });
 
 app.MapPost("/api/billing/webhook/yookassa", async (
     HttpRequest request,
     AppDbContext db,
+    EmailSender emailSender,
     CancellationToken cancellationToken) =>
 {
     var body = await new StreamReader(request.Body).ReadToEndAsync(cancellationToken);
@@ -2706,9 +2729,14 @@ app.MapPost("/api/billing/webhook/yookassa", async (
         return Results.Ok();
     }
 
-    await BillingPayments.ApplySucceededYooKassaPaymentAsync(db, company, payment, cancellationToken);
+    var result = await BillingPayments.ApplySucceededYooKassaPaymentAsync(db, company, payment, cancellationToken);
 
     await db.SaveChangesAsync(cancellationToken);
+    if (result.SubscriptionExtended)
+    {
+        await SendPaymentSuccessEmailAsync(db, emailSender, company, result.PaidUntil, cancellationToken);
+    }
+
     return Results.Ok();
 });
 
@@ -2733,6 +2761,59 @@ static string? NormalizeEmail(string? value)
         return null;
     }
 }
+
+static Task SendRegistrationEmailAsync(
+    EmailSender emailSender,
+    Company company,
+    AppUser admin,
+    CancellationToken cancellationToken) =>
+    emailSender.SendAsync(
+        admin.Email,
+        "Компания зарегистрирована в Fulvero",
+        $"""
+        <h1 style="margin:0 0 12px;font-size:22px;">Добро пожаловать в Fulvero</h1>
+        <p style="font-size:15px;line-height:1.55;">Компания <strong>{Html(company.Name)}</strong> зарегистрирована, а сотрудник <strong>{Html(admin.DisplayName)}</strong> назначен администратором.</p>
+        <p style="font-size:15px;line-height:1.55;">Демо-доступ открыт на 3 дня, до <strong>{FormatMailDate(company.TrialEndsAt)}</strong>.</p>
+        <p style="font-size:15px;line-height:1.55;">После окончания триала оплатить подписку сможет только администратор компании.</p>
+        """,
+        cancellationToken);
+
+static async Task SendPaymentSuccessEmailAsync(
+    AppDbContext db,
+    EmailSender emailSender,
+    Company company,
+    DateTimeOffset? paidUntil,
+    CancellationToken cancellationToken)
+{
+    var adminEmails = await db.Users
+        .AsNoTracking()
+        .Where(user => user.CompanyId == company.Id
+            && user.Role == UserRoles.Admin
+            && user.IsActive
+            && user.Email != "")
+        .Select(user => user.Email)
+        .Distinct()
+        .ToListAsync(cancellationToken);
+
+    foreach (var email in adminEmails)
+    {
+        await emailSender.SendAsync(
+            email,
+            "Оплата Fulvero прошла успешно",
+            $"""
+            <h1 style="margin:0 0 12px;font-size:22px;">Подписка продлена</h1>
+            <p style="font-size:15px;line-height:1.55;">Оплата компании <strong>{Html(company.Name)}</strong> успешно получена через ЮKassa.</p>
+            <p style="font-size:15px;line-height:1.55;">Доступ продлен до <strong>{FormatMailDate(paidUntil)}</strong>.</p>
+            <p style="font-size:15px;line-height:1.55;">Fulvero использует ручное продление: способ оплаты не сохраняется и автосписаний нет.</p>
+            """,
+            cancellationToken);
+    }
+}
+
+static string Html(string value) => System.Net.WebUtility.HtmlEncode(value);
+
+static string FormatMailDate(DateTimeOffset? value) =>
+    value is null ? "дата уточняется" : value.Value.ToLocalTime().ToString("dd.MM.yyyy");
 
 app.Run();
 
@@ -2891,6 +2972,7 @@ record SystemHealthResponse(
     string DotnetVersion);
 record BackupFileResponse(string FileName, long SizeBytes, DateTimeOffset CreatedAt);
 record BillingCheckoutResponse(string ConfirmationUrl, string PaymentId);
+record BillingPaymentApplyResult(bool SubscriptionExtended, DateTimeOffset? PaidUntil);
 record BillingStatusResponse(
     string SubscriptionStatus,
     DateTimeOffset TrialEndsAt,
@@ -3213,7 +3295,7 @@ static class BillingPayments
             CreatedAt = GetDateTimeOffset(payment, "created_at") ?? DateTimeOffset.UtcNow
         };
 
-    public static async Task ApplySucceededYooKassaPaymentAsync(
+    public static async Task<BillingPaymentApplyResult> ApplySucceededYooKassaPaymentAsync(
         AppDbContext db,
         Company company,
         JsonElement payment,
@@ -3222,7 +3304,7 @@ static class BillingPayments
         var paymentId = GetString(payment, "id");
         if (string.IsNullOrWhiteSpace(paymentId))
         {
-            return;
+            return new BillingPaymentApplyResult(false, company.SubscriptionPaidUntil);
         }
 
         var existing = await db.BillingPayments.FirstOrDefaultAsync(
@@ -3259,6 +3341,8 @@ static class BillingPayments
             company.SubscriptionStatus = CompanySubscriptionStatuses.Active;
             company.SubscriptionPaidUntil = startsAt.AddDays(30);
         }
+
+        return new BillingPaymentApplyResult(!wasAlreadySucceeded, company.SubscriptionPaidUntil);
     }
 
     private static string GetString(JsonElement value, string propertyName, string fallback = "") =>
