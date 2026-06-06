@@ -2666,6 +2666,8 @@ function App() {
   }
 
   if (user && !user.hasActiveSubscription) {
+    const canPaySubscription = user.role === 'Admin'
+
     return (
       <main className="login-page">
         <section className="login-form subscription-gate">
@@ -2673,11 +2675,20 @@ function App() {
           <h1>Нужна подписка</h1>
           <p>
             Демо-доступ компании <strong>{user.companyName}</strong> закончился. Чтобы продолжить работу,
-            оплатите ежемесячную подписку через ЮKassa.
+            нужна ежемесячная подписка через ЮKassa.
           </p>
-          <button type="button" onClick={startSubscriptionCheckout}>
-            Оплатить подписку
-          </button>
+          {canPaySubscription ? (
+            <>
+              <button type="button" onClick={startSubscriptionCheckout}>
+                Оплатить подписку 5 900 ₽
+              </button>
+              <p className="trial-note">После оплаты доступ компании продлится на 30 дней.</p>
+            </>
+          ) : (
+            <p className="trial-note">
+              Оплатить подписку может только администратор компании. Обратитесь к администратору.
+            </p>
+          )}
           <button type="button" className="secondary-action" onClick={logout}>
             Выйти
           </button>
@@ -4757,9 +4768,13 @@ function App() {
                   <strong>{user.hasActiveSubscription ? 'Активен' : 'Нужна оплата'}</strong>
                   <small>{getTrialRemainingText(user.trialEndsAt)}</small>
                   <small>{getSubscriptionRemainingText(user.subscriptionPaidUntil)}</small>
-                  <button type="button" className="settings-card-action" onClick={startSubscriptionCheckout}>
-                    Продлить тариф
-                  </button>
+                  {user.role === 'Admin' ? (
+                    <button type="button" className="settings-card-action" onClick={startSubscriptionCheckout}>
+                      Продлить тариф
+                    </button>
+                  ) : (
+                    <small>Продлить тариф может только администратор компании.</small>
+                  )}
                   {billingStatus && <small>{billingStatus}</small>}
                 </div>
                 <div>
