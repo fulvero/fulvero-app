@@ -346,7 +346,9 @@ function App() {
   const [ozonApiKey, setOzonApiKey] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   const [isLoading, setIsLoading] = useState(true)
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [authMode, setAuthMode] = useState<'login' | 'register'>(() =>
+    window.location.pathname.toLowerCase().includes('register') ? 'register' : 'login',
+  )
   const [loginError, setLoginError] = useState('')
   const [billingStatus, setBillingStatus] = useState('')
   const [ozonStatus, setOzonStatus] = useState('')
@@ -870,7 +872,7 @@ function App() {
 
   async function startSubscriptionCheckout() {
     setBillingStatus('Готовим оплату подписки через ЮKassa...')
-    const response = await fetch('/api/billing/checkout', {
+    const response = await fetch('/api/billing/create-payment', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

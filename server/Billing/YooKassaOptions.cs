@@ -5,6 +5,6 @@ public class YooKassaOptions
     public string ShopId { get; set; } = string.Empty;
     public string SecretKey { get; set; } = string.Empty;
     public string ReturnUrl { get; set; } = string.Empty;
-    public decimal MonthlyAmount { get; set; } = 4900;
+    public decimal MonthlyAmount { get; set; } = 5900;
     public string Currency { get; set; } = "RUB";
 }

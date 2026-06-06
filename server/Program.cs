@@ -2568,7 +2568,124 @@ app.MapPost("/api/billing/checkout", async (
     return Results.Ok(new BillingCheckoutResponse(confirmationUrl, paymentId));
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
+app.MapPost("/api/billing/create-payment", async (
+    HttpRequest currentRequest,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    IHttpClientFactory httpClientFactory,
+    Microsoft.Extensions.Options.IOptions<YooKassaOptions> options) =>
+{
+    var value = options.Value;
+    if (string.IsNullOrWhiteSpace(value.ShopId) || string.IsNullOrWhiteSpace(value.SecretKey))
+    {
+        return Results.BadRequest("ЮKassa не настроена: задайте YooKassa__ShopId и YooKassa__SecretKey.");
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var company = await db.Companies.FindAsync(companyId);
+    if (company is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var returnUrl = string.IsNullOrWhiteSpace(value.ReturnUrl)
+        ? $"{BillingPublicText.GetRequestOrigin(currentRequest)}/"
+        : value.ReturnUrl;
+    var request = new
+    {
+        amount = new
+        {
+            value = value.MonthlyAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+            currency = value.Currency
+        },
+        confirmation = new { type = "redirect", return_url = returnUrl },
+        capture = true,
+        description = $"Подписка Fulvero на 1 месяц: {company.Name}",
+        save_payment_method = true,
+        metadata = new { companyId = company.Id.ToString() }
+    };
+
+    using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/v3/payments");
+    httpRequest.Headers.Authorization = BillingPublicText.CreateBasicAuthHeader(value.ShopId, value.SecretKey);
+    httpRequest.Headers.Add("Idempotence-Key", Guid.NewGuid().ToString());
+    httpRequest.Content = System.Net.Http.Json.JsonContent.Create(request);
+
+    using var response = await httpClientFactory.CreateClient("YooKassa").SendAsync(httpRequest);
+    var content = await response.Content.ReadAsStringAsync();
+    if (!response.IsSuccessStatusCode)
+    {
+        return Results.Problem(content, statusCode: (int)response.StatusCode);
+    }
+
+    var payment = JsonSerializer.Deserialize<JsonElement>(content);
+    var paymentId = payment.GetProperty("id").GetString() ?? string.Empty;
+    var confirmationUrl = payment.GetProperty("confirmation").GetProperty("confirmation_url").GetString() ?? string.Empty;
+
+    company.LastYooKassaPaymentId = paymentId;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new BillingCheckoutResponse(confirmationUrl, paymentId));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+
+app.MapGet("/api/billing/status", async (AppDbContext db, ClaimsPrincipal principal) =>
+{
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var company = await db.Companies.AsNoTracking().FirstOrDefaultAsync(company => company.Id == companyId);
+    return company is null
+        ? Results.Unauthorized()
+        : Results.Ok(new BillingStatusResponse(
+            company.SubscriptionStatus,
+            company.TrialEndsAt,
+            company.SubscriptionPaidUntil,
+            SubscriptionAccess.IsActive(company)));
+}).RequireAuthorization();
+
 app.MapPost("/api/billing/yookassa/webhook", async (
+    HttpRequest request,
+    AppDbContext db,
+    IDataProtectionProvider dataProtectionProvider,
+    CancellationToken cancellationToken) =>
+{
+    var body = await new StreamReader(request.Body).ReadToEndAsync(cancellationToken);
+    var payload = JsonSerializer.Deserialize<JsonElement>(body);
+    if (!payload.TryGetProperty("event", out var eventElement)
+        || eventElement.GetString() != "payment.succeeded"
+        || !payload.TryGetProperty("object", out var payment))
+    {
+        return Results.Ok();
+    }
+
+    if (!payment.TryGetProperty("metadata", out var metadata)
+        || !metadata.TryGetProperty("companyId", out var companyIdElement)
+        || !Guid.TryParse(companyIdElement.GetString(), out var companyId))
+    {
+        return Results.Ok();
+    }
+
+    var company = await db.Companies.FindAsync([companyId], cancellationToken);
+    if (company is null)
+    {
+        return Results.Ok();
+    }
+
+    company.SubscriptionStatus = CompanySubscriptionStatuses.Active;
+    company.SubscriptionPaidUntil = DateTimeOffset.UtcNow.AddMonths(1);
+    company.LastYooKassaPaymentId = payment.GetProperty("id").GetString() ?? company.LastYooKassaPaymentId;
+
+    if (payment.TryGetProperty("payment_method", out var paymentMethod)
+        && paymentMethod.TryGetProperty("saved", out var saved)
+        && saved.ValueKind == JsonValueKind.True
+        && paymentMethod.TryGetProperty("id", out var paymentMethodId))
+    {
+        var protector = dataProtectionProvider.CreateProtector("Fulvero.YooKassaPaymentMethod.v1");
+        company.YooKassaPaymentMethodIdProtected = protector.Protect(paymentMethodId.GetString() ?? string.Empty);
+    }
+
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok();
+});
+
+app.MapPost("/api/billing/webhook/yookassa", async (
     HttpRequest request,
     AppDbContext db,
     IDataProtectionProvider dataProtectionProvider,
@@ -2792,6 +2909,11 @@ record SystemHealthResponse(
     string DotnetVersion);
 record BackupFileResponse(string FileName, long SizeBytes, DateTimeOffset CreatedAt);
 record BillingCheckoutResponse(string ConfirmationUrl, string PaymentId);
+record BillingStatusResponse(
+    string SubscriptionStatus,
+    DateTimeOffset TrialEndsAt,
+    DateTimeOffset? SubscriptionPaidUntil,
+    bool HasActiveSubscription);
 record OzonProductListItemResponse(
     long ProductId,
     string OfferId,

@@ -44,7 +44,7 @@ services:
       YooKassa__ShopId: ${YOOKASSA_SHOP_ID}
       YooKassa__SecretKey: ${YOOKASSA_SECRET_KEY}
       YooKassa__ReturnUrl: ${YOOKASSA_RETURN_URL}
-      YooKassa__MonthlyAmount: ${YOOKASSA_MONTHLY_AMOUNT:-4900}
+      YooKassa__MonthlyAmount: ${YOOKASSA_MONTHLY_AMOUNT:-5900}
       YooKassa__Currency: ${YOOKASSA_CURRENCY:-RUB}
 
   adminer:

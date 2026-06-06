@@ -3,7 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fulvero - контроль товарного бизнеса на Ozon</title>
+    <title>Fulvero — операционная система товарного бизнеса на Ozon</title>
+    <meta name="description" content="Fulvero помогает управлять остатками, закупками, производством, поставками, сотрудниками и аналитикой Ozon из одного кабинета." />
+    <meta property="og:title" content="Fulvero — операционная система товарного бизнеса на Ozon" />
+    <meta property="og:description" content="Остатки, закупки, производство, входящие поставки, сотрудники и аналитика Ozon в одном кабинете." />
+    <meta property="og:image" content="../client/src/assets/fulvero-logo.png" />
+    <meta property="og:type" content="website" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -11,200 +16,188 @@
       <a class="brand" href="#top" aria-label="Fulvero">
         <img src="../client/src/assets/fulvero-logo.png" alt="Fulvero" />
       </a>
-      <nav class="main-nav" aria-label="Навигация">
+      <nav class="main-nav" aria-label="Основная навигация">
         <a href="#features">Возможности</a>
-        <a href="#integrations">Интеграции</a>
-        <a href="#pricing">Цена</a>
-        <a href="#faq">FAQ</a>
-        <a href="#contacts">Контакты</a>
+        <a href="#production">Производство</a>
+        <a href="#goods">Товары</a>
+        <a href="#supplies">Поставки</a>
+        <a href="#analytics">Аналитика</a>
+        <a href="#integrations">Интеграция</a>
+        <a href="#pricing">Тарифы</a>
+        <a href="#faq">О нас</a>
       </nav>
       <div class="header-actions">
-        <a class="ghost-link" href="../client/dist/index.html">Войти</a>
-        <a class="primary-link" href="../client/dist/index.html">Попробовать 3 дня</a>
+        <a class="ghost-link" href="https://app.fulvero.ru/login">Войти</a>
+        <a class="primary-link" href="https://app.fulvero.ru/register">Попробовать бесплатно 3 дня</a>
       </div>
     </header>
 
     <main id="top">
       <section class="hero">
         <div class="hero-copy">
-          <span class="eyebrow">Операционная система для товарного бизнеса</span>
-          <h1>Полный контроль товарного бизнеса <span>в одном месте</span></h1>
-          <p>
-            Fulvero помогает продавцам Ozon управлять остатками, производством,
-            закупками, поставками, сотрудниками и аналитикой без хаоса в Excel.
-          </p>
+          <span class="eyebrow">Все процессы в одной системе</span>
+          <h1>Fulvero — операционная система товарного бизнеса <span>на Ozon</span></h1>
+          <p>Контролируйте остатки, закупки, производство, поставки, сотрудников и аналитику из одного кабинета.</p>
           <div class="hero-actions">
-            <a class="primary-link big" href="../client/dist/index.html">Попробовать бесплатно 3 дня</a>
-            <a class="secondary-link big" href="../client/dist/index.html">Оплатить 5900/мес</a>
+            <a class="primary-link big" href="https://app.fulvero.ru/register">Попробовать бесплатно 3 дня</a>
+            <a class="secondary-link big" href="#features">Посмотреть возможности</a>
           </div>
           <div class="trust-row">
-            <span>Интеграция с Ozon</span>
-            <span>Без установки</span>
-            <span>Без карт на триале</span>
-            <span>Командный доступ</span>
+            <span>3 дня полного доступа</span>
+            <span>Без карты</span>
+            <span>Регистрация за минуту</span>
           </div>
         </div>
 
-        <div class="app-frame" aria-label="Интерфейс Fulvero">
-          <div class="app-top">
-            <b>Fulvero</b>
-            <span>Главная</span>
-            <span>Производство</span>
-            <span>Товары</span>
-            <span>Поставки</span>
-            <span>Чаты</span>
-          </div>
-          <div class="app-screen">
-            <section class="mock-card attention">
-              <h3>Требует внимания</h3>
-              <div class="mini-grid">
-                <span><b>4</b><small>срочно закупить</small></span>
-                <span><b>1</b><small>произвести</small></span>
-                <span><b>6</b><small>скоро закончится</small></span>
-                <span><b>2</b><small>без типа</small></span>
-              </div>
-            </section>
-            <section class="mock-card">
-              <h3>Производство</h3>
-              <div class="mini-grid three">
-                <span><b>2</b><small>новые</small></span>
-                <span><b>5</b><small>в работе</small></span>
-                <span><b>8</b><small>готово</small></span>
-              </div>
-            </section>
-            <section class="mock-card">
-              <h3>Поставки</h3>
-              <div class="mini-grid three">
-                <span><b>3</b><small>создано</small></span>
-                <span><b>2</b><small>в пути</small></span>
-                <span><b>7</b><small>принято</small></span>
-              </div>
-            </section>
-            <section class="mock-card chart">
-              <h3>График продаж</h3>
-              <div class="bars">
-                <i></i><i></i><i></i><i class="high"></i><i class="mid"></i><i class="mid"></i><i></i><i></i><i class="mid"></i><i></i><i class="mid"></i><i class="mid"></i>
-              </div>
-            </section>
+        <div class="hero-shot" aria-label="Главная страница Fulvero">
+          <div class="app-frame tilted">
+            <div class="app-top">
+              <b>Fulvero</b><span>Главная</span><span>Производство</span><span>Товары</span><span>Поставки</span><span>Аналитика</span>
+              <small>Менеджер</small>
+            </div>
+            <div class="app-screen">
+              <section class="mock-card attention"><h3>Требует внимания</h3><div class="mini-grid"><span><b>4</b><small>срочно закупить</small></span><span><b>2</b><small>произвести</small></span><span><b>6</b><small>скоро закончится</small></span><span><b>3</b><small>без типа</small></span></div></section>
+              <section class="mock-card"><h3>Производство</h3><div class="mini-grid three"><span><b>3</b><small>новые</small></span><span><b>5</b><small>в работе</small></span><span><b>9</b><small>готово</small></span></div></section>
+              <section class="mock-card"><h3>Поставки</h3><div class="mini-grid three"><span><b>5</b><small>создано</small></span><span><b>3</b><small>отправлено</small></span><span><b>2</b><small>принято</small></span></div></section>
+              <section class="mock-card chart"><h3>График продаж</h3><div class="bars"><i></i><i></i><i class="high"></i><i class="mid"></i><i class="mid"></i><i></i><i></i><i class="mid"></i><i></i><i class="mid"></i><i class="mid"></i><i></i></div></section>
+            </div>
           </div>
         </div>
       </section>
 
-      <section class="control-strip" id="features">
-        <h2>Что контролирует Fulvero</h2>
-        <div class="control-grid">
-          <article><span>PR</span><h3>Производство</h3><p>Создание задач, файлы, статусы, факт выполнения и архив.</p></article>
-          <article><span>BY</span><h3>Закупки</h3><p>Поставщики, ссылки, резервные товары и факт заказа.</p></article>
-          <article><span>DL</span><h3>Поставки</h3><p>Заказы на склад, статусы, история изменений и Excel-загрузка.</p></article>
-          <article><span>ST</span><h3>Остатки</h3><p>FBO/FBS, срочное пополнение и прогноз, на сколько дней хватит товара.</p></article>
-          <article><span>TM</span><h3>Команда</h3><p>Сотрудники одной компании, роли, чаты, онлайн-статус и задачи.</p></article>
-          <article><span>AN</span><h3>Аналитика</h3><p>Продажи за 30 дней, выручка, баланс, товары и движение заказов.</p></article>
+      <section class="quick-grid" id="features">
+        <article><span>ST</span><h3>Склад и остатки</h3><p>FBO/FBS остатки, срочные товары и прогноз окончания запасов.</p></article>
+        <article><span>GD</span><h3>Товары</h3><p>Типы товаров, поставщики, ссылки, редактор и история.</p></article>
+        <article><span>SP</span><h3>Поставки</h3><p>Входящие поставки закупочных товаров: заказано, отправлено, принято.</p></article>
+        <article><span>PR</span><h3>Производство</h3><p>Задачи, файлы, статусы, факт выполнения и назначение сотрудников.</p></article>
+        <article><span>TM</span><h3>Команда</h3><p>Роли, права, чаты, уведомления и работа внутри одной компании.</p></article>
+        <article><span>AN</span><h3>Аналитика</h3><p>Продажи, выручка, баланс Ozon, отмены и движение заказов.</p></article>
+      </section>
+
+      <section class="split dashboard-section">
+        <div>
+          <h2>Главная страница — <span>вся картина</span> бизнеса</h2>
+          <p>Главная страница показывает, что требует внимания прямо сейчас: срочные закупки, производство, поставки, продажи, выручку и товары без типа.</p>
+          <ul class="check-list">
+            <li>Срочные действия и задачи</li>
+            <li>Статус производства по товарам</li>
+            <li>Заказы и приемка поставок</li>
+            <li>График продаж и выручка</li>
+            <li>Баланс и аналитика Ozon</li>
+          </ul>
+        </div>
+        <div class="annotated-shot">
+          <span class="label label-a">Требует внимания</span>
+          <span class="label label-b">Производство</span>
+          <span class="label label-c">Поставки</span>
+          <span class="label label-d">Продажи и выручка</span>
+          <div class="app-frame compact">
+            <div class="app-top"><b>Fulvero</b><span>Главная</span><small>Менеджер</small></div>
+            <div class="app-screen mini-dashboard">
+              <section class="mock-card attention"><h3>Требует внимания</h3><div class="mini-grid"><span><b>4</b><small>срочно</small></span><span><b>2</b><small>производство</small></span><span><b>6</b><small>закончится</small></span><span><b>3</b><small>без типа</small></span></div></section>
+              <section class="mock-card"><h3>Производство</h3><div class="mini-grid three"><span><b>3</b></span><span><b>5</b></span><span><b>9</b></span></div></section>
+              <section class="mock-card"><h3>Поставки</h3><div class="mini-grid three"><span><b>5</b></span><span><b>3</b></span><span><b>2</b></span></div></section>
+              <section class="mock-card chart"><h3>Продажи</h3><div class="bars"><i></i><i class="mid"></i><i class="high"></i><i class="mid"></i><i></i><i class="mid"></i></div></section>
+            </div>
+          </div>
         </div>
       </section>
 
       <section class="flow">
-        <h2>Как работает Fulvero</h2>
+        <h2>Как <span>работает</span> Fulvero</h2>
         <div class="flow-line">
-          <article><b>1</b><h3>Остатки</h3><p>Система получает товары и остатки из Ozon.</p></article>
-          <article><b>2</b><h3>Решение</h3><p>Fulvero показывает, что купить, а что произвести.</p></article>
-          <article><b>3</b><h3>Закупка или производство</h3><p>Создаете поставку или производственную задачу.</p></article>
-          <article><b>4</b><h3>Поставка</h3><p>Контролируете факт заказа, поставщика и приемку.</p></article>
-          <article><b>5</b><h3>Продажи</h3><p>Смотрите реальные продажи, деньги и проблемные места.</p></article>
+          <article><b>1</b><h3>Товар заканчивается</h3><p>Система подсказывает, что нужно сделать.</p></article>
+          <article><b>2</b><h3>Производим сами?</h3><p>Да — создается производственная задача.</p></article>
+          <article><b>3</b><h3>Или закупаем</h3><p>Нет — создается заказ поставщику.</p></article>
+          <article><b>4</b><h3>Поставка</h3><p>Контролируете заказано, отправлено, принято.</p></article>
+          <article><b>5</b><h3>Продажи на Ozon</h3><p>Товар доступен к продаже, аналитика обновляется.</p></article>
         </div>
       </section>
 
-      <section class="audience">
-        <h2>Для кого создан Fulvero</h2>
-        <div class="audience-grid">
-          <article><h3>Селлеры Ozon</h3><p>Чтобы не терять продажи из-за пустого склада и ручных таблиц.</p></article>
-          <article><h3>Производства</h3><p>Чтобы планировать выпуск и видеть, какие товары нужно сделать.</p></article>
-          <article><h3>Импортеры</h3><p>Чтобы держать ссылки поставщиков, заказы и статусы в одном месте.</p></article>
-          <article><h3>Команды</h3><p>Чтобы сотрудники работали внутри одной компании и не видели чужие данные.</p></article>
+      <section class="feature-cards">
+        <h2>Ключевые <span>возможности</span></h2>
+        <div class="feature-grid">
+          <article id="goods"><div class="white-shot table-shot"></div><h3>Склад и остатки</h3><p>Fulvero показывает FBO/FBS остатки, срочные товары и прогноз, на сколько дней хватит запасов.</p><a href="#features">Подробнее</a></article>
+          <article><div class="white-shot cards-shot"></div><h3>Товары и настройки</h3><p>Настраивайте тип товара: производственный или закупочный. Производственные товары идут в производство, закупочные — в поставки и работу с поставщиками.</p><a href="#features">Подробнее</a></article>
+          <article id="supplies"><div class="white-shot rows-shot"></div><h3>Поставки</h3><p>Создавайте входящие поставки закупочных товаров, указывайте поставщиков, ссылки, количество, факт заказа, дату отправки и дату приемки.</p><a href="#features">Подробнее</a></article>
+          <article id="production"><div class="white-shot tasks-shot"></div><h3>Производство</h3><p>Создавайте производственные задачи только по производственным товарам, назначайте сотрудников и контролируйте выполнение.</p><a href="#features">Подробнее</a></article>
+          <article id="analytics"><div class="white-shot chart-shot"></div><h3>Аналитика</h3><p>Смотрите продажи за 30 дней, выручку, заказы в пути, готовые к отгрузке товары, отмены и баланс Ozon.</p><a href="#features">Подробнее</a></article>
         </div>
       </section>
 
-      <section class="interface-section">
-        <div class="wide-mock">
-          <div class="callout left top"><b>Требует внимания</b><span>Все срочное сразу на главной</span></div>
-          <div class="callout left bottom"><b>Поставки</b><span>Контроль заказов и приемки товаров</span></div>
-          <div class="callout right top"><b>Производство</b><span>Задачи по товарам и статус выполнения</span></div>
-          <div class="callout right bottom"><b>Аналитика</b><span>Продажи, баланс и движение заказов</span></div>
-          <div class="dashboard-preview">
-            <div class="preview-row"></div>
-            <div class="preview-grid"></div>
-            <div class="preview-chart"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="deep-features">
-        <article><h3>Редактор товаров</h3><p>Назначайте тип товара: производственный или закупочный. Ошиблись - меняете тип через аккуратный редактор.</p></article>
-        <article><h3>Поставщики</h3><p>Добавляйте несколько поставщиков к одному товару с названиями и ссылками. Ссылка открывается сразу, без лишних полей.</p></article>
-        <article><h3>Срочное пополнение</h3><p>Fulvero проходит по продажам и остаткам, показывает товары, которые могут закончиться за 5 дней.</p></article>
-        <article><h3>Безопасность компании</h3><p>Все товары, задачи, чаты, поставки и настройки относятся к компании. Другая компания их не увидит.</p></article>
-      </section>
-
-      <section class="ozon-band" id="integrations">
-        <div>
+      <section class="three-columns" id="integrations">
+        <article class="big-card ozon-card">
           <span class="eyebrow">Интеграция с Ozon</span>
-          <h2>Подключите Ozon ID и API-ключ один раз</h2>
-          <p>Fulvero загружает товары, остатки, аналитику и баланс. Данные хранятся безопасно и работают для всей компании.</p>
-        </div>
-        <strong>OZON</strong>
-      </section>
-
-      <section class="why">
-        <h2>Почему компании выбирают Fulvero</h2>
-        <div class="why-grid">
-          <article><h3>Не нужен Excel</h3><p>Все актуальные остатки, задачи и поставки в системе.</p></article>
-          <article><h3>Не теряются ссылки</h3><p>Поставщики закреплены за товаром и резервными позициями.</p></article>
-          <article><h3>Команда работает вместе</h3><p>Роли, сотрудники, чаты и задачи внутри одной компании.</p></article>
-          <article><h3>Видно, что заканчивается</h3><p>Система заранее подсказывает, что закупить или произвести.</p></article>
-          <article><h3>Видно, что происходит</h3><p>Главная страница показывает важные цифры без лишнего шума.</p></article>
-          <article><h3>Быстрый старт</h3><p>Регистрация компании, первый админ и 3 дня демо-доступа.</p></article>
-        </div>
-      </section>
-
-      <section class="pricing" id="pricing">
-        <h2>Простая и прозрачная цена</h2>
-        <article class="price-card">
-          <span>Fulvero</span>
-          <small>Все возможности системы</small>
-          <strong>5900 ₽ <em>/ месяц</em></strong>
-          <ul>
-            <li>Производство и задачи</li>
-            <li>Закупки и поставщики</li>
-            <li>Остатки и аналитика Ozon</li>
-            <li>Пользователи и роли</li>
-            <li>Чаты и уведомления</li>
-            <li>Подписка через ЮKassa</li>
-          </ul>
-          <div class="price-actions">
-            <a class="primary-link big" href="../client/dist/index.html">Попробовать бесплатно 3 дня</a>
-            <a class="secondary-link big" href="../client/dist/index.html">Перейти на платный тариф</a>
-          </div>
-          <p>3 дня бесплатно. После триала функционал доступен по подписке.</p>
+          <h2>Подключите Ozon Client ID и API-ключ</h2>
+          <p>Fulvero загрузит товары, остатки FBO/FBS, продажи, баланс и аналитику.</p>
+          <div class="notice">Сейчас доступна интеграция с Ozon. Поддержка других маркетплейсов находится в разработке.</div>
+          <p>Ozon ID нельзя подключить к двум разным компаниям — это защищает данные от смешивания.</p>
+        </article>
+        <article class="big-card">
+          <h2>Безопасность и изоляция компаний</h2>
+          <p>Все данные принадлежат конкретной компании. Одна компания не видит данные другой.</p>
+          <ul class="check-list columns"><li>сотрудники</li><li>товары</li><li>поставщики</li><li>поставки</li><li>производство</li><li>чаты</li><li>аудит</li><li>подписка</li><li>Ozon-интеграция</li></ul>
+        </article>
+        <article class="big-card">
+          <h2>Автоматические бэкапы</h2>
+          <p>PostgreSQL работает в Docker. Бэкапы создаются автоматически и хранятся 30 дней.</p>
+          <div class="backup-visual">DB</div>
         </article>
       </section>
 
-      <section class="faq" id="faq">
-        <h2>Часто задаваемые вопросы</h2>
-        <div class="faq-grid">
-          <details><summary>Можно ли работать нескольким сотрудникам?</summary><p>Да. Сотрудники относятся к одной компании, получают роли и видят только свои корпоративные данные.</p></details>
-          <details><summary>Подойдет ли Fulvero для производства?</summary><p>Да. Производственные товары попадают в задачи производства, закупочные - в поставки.</p></details>
-          <details><summary>Что будет после окончания триала?</summary><p>Через 3 дня функционал блокируется до оплаты подписки через ЮKassa.</p></details>
-          <details><summary>Нужна ли установка программы?</summary><p>Нет. Это веб-приложение, достаточно войти в личный кабинет.</p></details>
+      <section class="pricing" id="pricing">
+        <h2>Простая и прозрачная <span>цена</span></h2>
+        <div class="pricing-layout">
+          <article class="price-card">
+            <span>Fulvero</span>
+            <small>Все возможности системы</small>
+            <strong>5 900 ₽ <em>/ месяц</em></strong>
+            <ul>
+              <li>Производство</li><li>Закупки и поставщики</li><li>Поставки и приемка</li><li>Остатки и аналитика</li><li>Пользователи и роли</li><li>Чаты и уведомления</li><li>Интеграция с Ozon</li><li>Обновления</li><li>Поддержка</li>
+            </ul>
+          </article>
+          <article class="trial-card">
+            <p>3 дня полного доступа после регистрации. После окончания триала нужна подписка.</p>
+            <p>Оплата проходит через ЮKassa. Отменить подписку можно в любой момент.</p>
+            <a class="primary-link big" href="https://app.fulvero.ru/register">Попробовать бесплатно 3 дня</a>
+          </article>
         </div>
       </section>
 
-      <section class="final-cta" id="contacts">
+      <section class="faq" id="faq">
+        <h2>Часто задаваемые <span>вопросы</span></h2>
+        <div class="faq-grid">
+          <details><summary>Можно ли работать нескольким сотрудникам?</summary><p>Да. Сотрудники работают внутри компании, администратор управляет ролями и правами.</p></details>
+          <details><summary>Нужна ли установка программы?</summary><p>Нет. Fulvero — облачное веб-приложение.</p></details>
+          <details><summary>Подходит ли Fulvero для производства?</summary><p>Да. Производственные товары можно вести через задачи, файлы, статусы и факт выполнения.</p></details>
+          <details><summary>Подходит ли Fulvero для закупок в Китае?</summary><p>Да, если закупка ведется через поставщиков, ссылки, факт заказа и входящие поставки.</p></details>
+          <details><summary>Есть ли интеграция с Ozon?</summary><p>Да. Сейчас доступна интеграция с Ozon. Другие маркетплейсы находятся в разработке.</p></details>
+          <details><summary>Что будет после окончания триала?</summary><p>Через 3 дня защищенные действия блокируются до оплаты подписки.</p></details>
+          <details><summary>Как работает подписка?</summary><p>Подписка оплачивается через ЮKassa и продлевает доступ компании на 30 дней.</p></details>
+          <details><summary>Где хранятся данные?</summary><p>Данные компании хранятся в PostgreSQL, изолируются по компании и регулярно копируются в бэкап.</p></details>
+        </div>
+      </section>
+
+      <section class="legal-strip" id="contacts">
+        <a href="./contacts/">Контакты</a>
+        <a href="./privacy/">Политика конфиденциальности</a>
+        <a href="./offer/">Пользовательское соглашение / оферта</a>
+        <span>info@fulvero.ru</span>
+        <span>support@fulvero.ru</span>
+      </section>
+
+      <section class="final-cta">
         <img src="../client/src/assets/fulvero-logo.png" alt="Fulvero" />
         <div>
-          <h2>Начните управлять товарным бизнесом в одной системе</h2>
-          <p>Остатки, производство, закупки, поставки, аналитика и команда - без ручного хаоса.</p>
+          <h2>Начните управлять товарным бизнесом на <span>Ozon</span> в одной системе</h2>
+          <p>Производство, закупки, поставки, аналитика и команда — в одном интерфейсе.</p>
         </div>
-        <a class="primary-link big" href="../client/dist/index.html">Попробовать 3 дня</a>
+        <a class="primary-link big" href="https://app.fulvero.ru/register">Попробовать бесплатно 3 дня</a>
       </section>
     </main>
+    <footer class="footer">
+      <span>© 2026 Fulvero. Все права защищены.</span>
+      <span>Оплата подписки производится через ЮKassa. Контакты: info@fulvero.ru, support@fulvero.ru.</span>
+    </footer>
   </body>
 </html>
