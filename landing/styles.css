@@ -67,22 +67,63 @@ p, li { color: rgba(236, 244, 255, 0.72); line-height: 1.55; }
   background: #f8fbff; box-shadow: 0 0 0 10px rgba(255,255,255,.04), 0 40px 110px rgba(0,0,0,.58), 0 0 70px rgba(0,123,255,.34);
 }
 .tilted { transform: perspective(1400px) rotateY(-7deg) rotateX(3deg); }
-.app-top { display: flex; gap: 18px; align-items: center; padding: 16px 18px; color: #344054; background: #fff; font-size: 12px; font-weight: 800; }
-.app-top b { color: #0f172a; margin-right: auto; }
-.app-top small { color: #16a34a; }
-.app-screen { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 20px; color: #0f172a; background: #f3f6fb; }
-.mock-card { border: 1px solid #dbe3ef; border-radius: 8px; padding: 16px; background: #fff; }
-.mock-card h3 { color: #0f172a; }
-.mock-card.attention, .mock-card.chart { grid-column: span 2; }
-.mini-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.mini-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.mini-grid span { display: grid; gap: 4px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 11px; background: #f8fafc; }
-.mini-grid b { color: #2563eb; font-size: 26px; }
-.mini-grid small { color: #667085; font-weight: 800; }
-.bars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: end; gap: 8px; height: 140px; border-radius: 8px; padding: 16px; background: linear-gradient(180deg, #f8fbff, #fff); }
-.bars i { height: 12%; border-radius: 999px; background: linear-gradient(180deg, #2563eb, #38bdf8); opacity: .3; }
-.bars .mid { height: 52%; opacity: 1; }
-.bars .high { height: 92%; opacity: 1; }
+.dashboard-mock { color: #0f172a; background: #eef3fa; }
+.mock-header {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px;
+  min-height: 58px; padding: 10px 14px; border-bottom: 1px solid #d8e2ef; background: #fff;
+}
+.mock-brand { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 900; white-space: nowrap; }
+.mock-brand img { width: 126px; border-radius: 6px; background: #07111f; }
+.mock-header nav { display: flex; align-items: center; justify-content: center; gap: 16px; min-width: 0; font-size: 11px; font-weight: 900; color: #101828; }
+.mock-header nav span { white-space: nowrap; }
+.mock-header nav .active { border: 1px solid #b8d7ff; border-radius: 7px; padding: 8px 11px; color: #155ee8; background: #edf6ff; }
+.mock-user { display: flex; align-items: center; gap: 8px; color: #101828; font-size: 12px; font-weight: 900; white-space: nowrap; }
+.mock-user i { position: relative; display: block; width: 28px; height: 28px; border-radius: 999px; background: linear-gradient(180deg, #e7eef8, #c8d4e4); }
+.mock-user i::after { content: ""; position: absolute; right: 0; top: 1px; width: 8px; height: 8px; border: 2px solid #fff; border-radius: 999px; background: #17c964; }
+.bell { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #cbd8ea; border-radius: 999px; color: #2563eb; font-size: 10px; }
+.mock-page-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 18px 20px; border-bottom: 1px solid #d8e2ef; color: #52657f; background: #eef3fa;
+  font-size: 13px;
+}
+.mock-page-title b { color: #0f172a; font-size: 16px; }
+.dashboard-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, .72fr); gap: 12px;
+  padding: 12px; background: #eef3fa;
+}
+.dash-card { border: 1px solid #d5deeb; border-radius: 8px; padding: 14px; background: #fff; }
+.dash-card h3 { margin-bottom: 2px; color: #0f172a; font-size: 16px; }
+.dash-card p { margin-bottom: 10px; color: #667085; font-size: 12px; font-weight: 800; line-height: 1.3; }
+.attention-card { grid-column: span 1; }
+.chart-card { grid-column: 2; grid-row: 2 / span 2; }
+.supplies-card { display: grid; align-content: start; }
+.metric-row { display: grid; gap: 8px; }
+.metric-row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.metric-row.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.metric-row.seven { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.metric-row span { display: grid; gap: 4px; min-height: 64px; border: 1px solid #dfe7f2; border-radius: 7px; padding: 10px; background: #f8fafc; }
+.metric-row b { color: #2563eb; font-size: 24px; line-height: 1; }
+.metric-row small { color: #667085; font-size: 10px; font-weight: 900; line-height: 1.2; }
+.mock-actions { display: flex; gap: 8px; margin-top: 12px; }
+.mock-actions em, .mock-button, .card-head em {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 34px; border-radius: 7px; padding: 0 14px;
+  color: #fff; background: #2563eb; font-style: normal; font-size: 12px; font-weight: 900;
+}
+.mock-button { width: 100%; margin-top: 12px; }
+.new-block { margin-top: 12px; border-top: 1px solid #e5ebf3; padding-top: 12px; }
+.new-block h3 { font-size: 15px; }
+.new-block strong { color: #475467; font-size: 12px; }
+.card-head { display: flex; justify-content: space-between; gap: 14px; margin-bottom: 8px; }
+.sales-chart {
+  display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); align-items: end; gap: 8px;
+  height: 170px; margin-top: 12px; border: 1px solid #dfe7f2; border-radius: 8px; padding: 18px;
+  background: repeating-linear-gradient(0deg, #fff 0 39px, #eef3f8 40px), linear-gradient(180deg, #f8fbff, #fff);
+}
+.sales-chart i { height: 8px; border-radius: 999px; background: #b8dcff; }
+.sales-chart .bar { height: 58%; background: linear-gradient(180deg, #2563eb, #35b8f5); box-shadow: 0 8px 20px rgba(37,99,235,.22); }
+.sales-chart .high { height: 96%; }
+.sales-chart .mid { height: 55%; }
+.sales-chart .low { height: 30%; }
 
 .quick-grid, .feature-grid, .faq-grid, .three-columns, .pricing-layout {
   display: grid; gap: 14px;
@@ -112,6 +153,16 @@ p, li { color: rgba(236, 244, 255, 0.72); line-height: 1.55; }
 .annotated-shot { position: relative; min-height: 420px; display: grid; place-items: center; }
 .compact { width: min(720px, 84%); }
 .mini-dashboard { min-height: 330px; }
+.small-shot .mock-header { min-height: 46px; padding: 8px 10px; }
+.small-shot .mock-brand img { width: 92px; }
+.small-shot .mock-header nav { gap: 10px; font-size: 9px; }
+.small-shot .mock-page-title { padding: 12px 14px; }
+.small-shot .dashboard-grid { grid-template-columns: minmax(0, 1fr) minmax(240px, .82fr); gap: 8px; padding: 8px; }
+.small-shot .dash-card { padding: 10px; }
+.small-shot .dash-card h3 { font-size: 13px; }
+.small-shot .metric-row span { min-height: 46px; padding: 7px; }
+.small-shot .metric-row b { font-size: 18px; }
+.small-shot .sales-chart { height: 92px; padding: 10px; gap: 5px; }
 .label {
   position: absolute; border: 1px solid rgba(0,123,255,.32); border-radius: 8px; padding: 10px 12px;
   color: #d9ebff; background: rgba(5,13,28,.86); font-size: 13px; font-weight: 900;
@@ -166,6 +217,9 @@ p, li { color: rgba(236, 244, 255, 0.72); line-height: 1.55; }
   .main-nav { justify-content: flex-start; overflow-x: auto; }
   .hero { min-height: auto; }
   .tilted { transform: none; }
+  .dashboard-grid, .small-shot .dashboard-grid { grid-template-columns: 1fr; }
+  .chart-card { grid-column: auto; grid-row: auto; }
+  .metric-row.seven { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .quick-grid, .feature-grid, .three-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .flow-line { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .label { position: static; width: 100%; margin-bottom: 8px; }
@@ -177,6 +231,11 @@ p, li { color: rgba(236, 244, 255, 0.72); line-height: 1.55; }
   .brand img { width: 160px; }
   .main-nav { display: none; }
   .hero, .split, .flow, .feature-cards, .three-columns, .pricing, .faq, .legal-strip, .final-cta, .content-page { margin-left: 12px; margin-right: 12px; padding: 24px 16px; }
+  .mock-header { grid-template-columns: 1fr; }
+  .mock-header nav { justify-content: flex-start; overflow-x: auto; }
+  .mock-page-title { align-items: flex-start; flex-direction: column; }
+  .metric-row.three, .metric-row.four, .metric-row.seven { grid-template-columns: 1fr; }
+  .sales-chart { height: 140px; gap: 5px; padding: 12px; }
   .quick-grid, .feature-grid, .three-columns, .flow-line, .faq-grid, .price-card ul, .mini-grid, .mini-grid.three { grid-template-columns: 1fr; }
   .mock-card.attention, .mock-card.chart { grid-column: auto; }
   .app-top { overflow-x: auto; }

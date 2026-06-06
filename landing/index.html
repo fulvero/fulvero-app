@@ -50,16 +50,35 @@
         </div>
 
         <div class="hero-shot" aria-label="Главная страница Fulvero">
-          <div class="app-frame tilted">
-            <div class="app-top">
-              <b>Fulvero</b><span>Главная</span><span>Производство</span><span>Товары</span><span>Поставки</span><span>Аналитика</span>
-              <small>Менеджер</small>
+          <div class="app-frame tilted dashboard-mock">
+            <div class="mock-header">
+              <div class="mock-brand"><img src="../client/src/assets/fulvero-logo.png" alt="" /><strong>DemoMarket</strong></div>
+              <nav><span class="active">Главная</span><span>Производство</span><span>Товары</span><span>Аналитика</span><span>Склад</span><span>Поставки</span><span>Интеграция</span></nav>
+              <div class="mock-user"><span class="bell">3</span><b>Алексей</b><i></i></div>
             </div>
-            <div class="app-screen">
-              <section class="mock-card attention"><h3>Требует внимания</h3><div class="mini-grid"><span><b>4</b><small>срочно закупить</small></span><span><b>2</b><small>произвести</small></span><span><b>6</b><small>скоро закончится</small></span><span><b>3</b><small>без типа</small></span></div></section>
-              <section class="mock-card"><h3>Производство</h3><div class="mini-grid three"><span><b>3</b><small>новые</small></span><span><b>5</b><small>в работе</small></span><span><b>9</b><small>готово</small></span></div></section>
-              <section class="mock-card"><h3>Поставки</h3><div class="mini-grid three"><span><b>5</b><small>создано</small></span><span><b>3</b><small>отправлено</small></span><span><b>2</b><small>принято</small></span></div></section>
-              <section class="mock-card chart"><h3>График продаж</h3><div class="bars"><i></i><i></i><i class="high"></i><i class="mid"></i><i class="mid"></i><i></i><i></i><i class="mid"></i><i></i><i class="mid"></i><i class="mid"></i><i></i></div></section>
+            <div class="mock-page-title"><b>Главная</b><span>Сводка по товарам, производству, поставкам и продажам</span></div>
+            <div class="dashboard-grid">
+              <section class="dash-card attention-card">
+                <h3>Требует внимания</h3><p>Самые срочные действия</p>
+                <div class="metric-row four"><span><b>7</b><small>срочно закупить</small></span><span><b>3</b><small>произвести</small></span><span><b>12</b><small>скоро закончится</small></span><span><b>4</b><small>без типа</small></span></div>
+                <div class="mock-actions"><em>Создать производство</em><em>Создать заказ</em></div>
+              </section>
+              <section class="dash-card production-card">
+                <h3>Производство</h3><p>Задачи по товарам</p>
+                <div class="metric-row three"><span><b>5</b><small>новые</small></span><span><b>8</b><small>в работе</small></span><span><b>11</b><small>готово</small></span></div>
+                <div class="mock-button">Открыть производство</div>
+              </section>
+              <section class="dash-card supplies-card">
+                <h3>Поставки</h3><p>Заказы и приемка</p>
+                <div class="metric-row three"><span><b>6</b><small>создано</small></span><span><b>4</b><small>в пути</small></span><span><b>9</b><small>принято</small></span></div>
+                <div class="mock-button">Открыть поставки</div>
+                <div class="new-block"><h3>Новое</h3><p>Товары без типа</p><strong>4 товара ждут настройки</strong></div>
+              </section>
+              <section class="dash-card chart-card">
+                <div class="card-head"><div><h3>График продаж</h3><p>Реальные заказы Ozon за последние 30 дней</p></div><em>Обновить</em></div>
+                <div class="metric-row seven"><span><b>38</b><small>продано, шт.</small></span><span><b>184 700</b><small>выручка</small></span><span><b>4</b><small>заказов в пути</small></span><span><b>7</b><small>собираются</small></span><span><b>3</b><small>готово к отгрузке</small></span><span><b>2</b><small>отменено, шт.</small></span><span><b>57 420</b><small>на счету сейчас</small></span></div>
+                <div class="sales-chart"><i></i><i></i><i class="bar high" data-v="7"></i><i class="bar mid"></i><i class="bar mid"></i><i class="bar mid"></i><i></i><i></i><i></i><i class="bar low"></i><i></i><i class="bar mid"></i><i class="bar mid"></i><i></i></div>
+              </section>
             </div>
           </div>
         </div>
@@ -91,13 +110,18 @@
           <span class="label label-b">Производство</span>
           <span class="label label-c">Поставки</span>
           <span class="label label-d">Продажи и выручка</span>
-          <div class="app-frame compact">
-            <div class="app-top"><b>Fulvero</b><span>Главная</span><small>Менеджер</small></div>
-            <div class="app-screen mini-dashboard">
-              <section class="mock-card attention"><h3>Требует внимания</h3><div class="mini-grid"><span><b>4</b><small>срочно</small></span><span><b>2</b><small>производство</small></span><span><b>6</b><small>закончится</small></span><span><b>3</b><small>без типа</small></span></div></section>
-              <section class="mock-card"><h3>Производство</h3><div class="mini-grid three"><span><b>3</b></span><span><b>5</b></span><span><b>9</b></span></div></section>
-              <section class="mock-card"><h3>Поставки</h3><div class="mini-grid three"><span><b>5</b></span><span><b>3</b></span><span><b>2</b></span></div></section>
-              <section class="mock-card chart"><h3>Продажи</h3><div class="bars"><i></i><i class="mid"></i><i class="high"></i><i class="mid"></i><i></i><i class="mid"></i></div></section>
+          <div class="app-frame compact dashboard-mock small-shot">
+            <div class="mock-header">
+              <div class="mock-brand"><img src="../client/src/assets/fulvero-logo.png" alt="" /><strong>DemoMarket</strong></div>
+              <nav><span class="active">Главная</span><span>Производство</span><span>Товары</span><span>Поставки</span></nav>
+              <div class="mock-user"><b>Менеджер</b><i></i></div>
+            </div>
+            <div class="mock-page-title"><b>Главная</b><span>Сводка бизнеса</span></div>
+            <div class="dashboard-grid">
+              <section class="dash-card attention-card"><h3>Требует внимания</h3><p>Самые срочные действия</p><div class="metric-row four"><span><b>7</b><small>закупить</small></span><span><b>3</b><small>произвести</small></span><span><b>12</b><small>закончится</small></span><span><b>4</b><small>без типа</small></span></div></section>
+              <section class="dash-card production-card"><h3>Производство</h3><p>Задачи</p><div class="metric-row three"><span><b>5</b><small>новые</small></span><span><b>8</b><small>в работе</small></span><span><b>11</b><small>готово</small></span></div></section>
+              <section class="dash-card supplies-card"><h3>Поставки</h3><p>Заказы</p><div class="metric-row three"><span><b>6</b><small>создано</small></span><span><b>4</b><small>в пути</small></span><span><b>9</b><small>принято</small></span></div></section>
+              <section class="dash-card chart-card"><h3>Продажи</h3><div class="metric-row three"><span><b>38</b><small>шт.</small></span><span><b>184 700</b><small>выручка</small></span><span><b>2</b><small>отменено</small></span></div><div class="sales-chart"><i></i><i class="bar high"></i><i class="bar mid"></i><i class="bar mid"></i><i></i><i class="bar low"></i></div></section>
             </div>
           </div>
         </div>
