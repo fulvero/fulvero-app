@@ -2773,6 +2773,13 @@ static Task SendRegistrationEmailAsync(
         $"""
         <h1 style="margin:0 0 12px;font-size:22px;">Добро пожаловать в Fulvero</h1>
         <p style="font-size:15px;line-height:1.55;">Компания <strong>{Html(company.Name)}</strong> зарегистрирована, а сотрудник <strong>{Html(admin.DisplayName)}</strong> назначен администратором.</p>
+        <div style="margin:18px 0;padding:16px;border:1px solid #d8e1ef;border-radius:12px;background:#f8fbff;">
+          <p style="margin:0 0 8px;font-size:14px;color:#64748b;">Данные для входа</p>
+          <p style="margin:0 0 6px;font-size:15px;line-height:1.5;"><strong>Компания:</strong> {Html(company.Name)}</p>
+          <p style="margin:0 0 6px;font-size:15px;line-height:1.5;"><strong>Логин:</strong> {Html(admin.UserName)}</p>
+          <p style="margin:0 0 6px;font-size:15px;line-height:1.5;"><strong>Email администратора:</strong> {Html(admin.Email)}</p>
+          <p style="margin:0;font-size:15px;line-height:1.5;"><strong>Пароль:</strong> задан при регистрации и не отправляется по почте ради безопасности.</p>
+        </div>
         <p style="font-size:15px;line-height:1.55;">Демо-доступ открыт на 3 дня, до <strong>{FormatMailDate(company.TrialEndsAt)}</strong>.</p>
         <p style="font-size:15px;line-height:1.55;">После окончания триала оплатить подписку сможет только администратор компании.</p>
         """,

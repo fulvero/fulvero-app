@@ -55,6 +55,7 @@ services:
       Smtp__FromEmail: ${SMTP_FROM_EMAIL:-}
       Smtp__FromName: ${SMTP_FROM_NAME:-Fulvero}
       Smtp__ReplyToEmail: ${SMTP_REPLY_TO_EMAIL:-}
+      Smtp__LogoFilePath: ${SMTP_LOGO_FILE_PATH:-wwwroot/email-logo.png}
       Smtp__LogoUrl: ${SMTP_LOGO_URL:-https://fulvero.ru/assets/fulvero-logo.png}
 
   adminer:

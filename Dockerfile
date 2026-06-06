@@ -16,6 +16,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=server-build /app/publish ./
 COPY --from=client-build /src/client/dist ./wwwroot
+COPY landing/assets/fulvero-logo.png ./wwwroot/email-logo.png
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Fulvero.Api.dll"]
