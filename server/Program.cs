@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Mail;
 using System.Text;
@@ -1970,7 +1971,7 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest request, AppDbContext db
             OfferId = item.IsReserve ? string.Empty : item.OfferId.Trim(),
             ProductName = item.ProductName.Trim(),
             Quantity = item.Quantity,
-            ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
+            ActualOrderQuantity = item.ActualOrderQuantity ?? 0,
             SupplierName = item.SupplierName.Trim(),
             SupplierUrl = item.SupplierUrl.Trim(),
             IsReserve = item.IsReserve
@@ -2073,7 +2074,7 @@ app.MapPost("/api/supplies/import", async (
             OfferId = item.IsReserve ? string.Empty : item.OfferId.Trim(),
             ProductName = item.ProductName.Trim(),
             Quantity = item.Quantity,
-            ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
+            ActualOrderQuantity = item.ActualOrderQuantity ?? 0,
             SupplierName = item.SupplierName.Trim(),
             SupplierUrl = item.SupplierUrl.Trim(),
             IsReserve = item.IsReserve
@@ -2106,7 +2107,9 @@ app.MapPut("/api/supplies/{id:guid}/status", async (
     ClaimsPrincipal principal) =>
 {
     var companyId = CompanyAccess.GetCompanyId(principal);
-    var supply = await db.Supplies.FirstOrDefaultAsync(supply => supply.Id == id && supply.CompanyId == companyId);
+    var supply = await db.Supplies
+        .Include(supply => supply.Items)
+        .FirstOrDefaultAsync(supply => supply.Id == id && supply.CompanyId == companyId);
     if (supply is null)
     {
         return Results.NotFound();
@@ -2125,6 +2128,11 @@ app.MapPut("/api/supplies/{id:guid}/status", async (
             return Results.BadRequest("Отправить можно только поставку в статусе создано.");
         }
 
+        if (supply.Items.Count == 0 || supply.Items.Any(item => item.ActualOrderQuantity <= 0))
+        {
+            return Results.BadRequest("Отправить можно только поставку, где все товары заказаны.");
+        }
+
         supply.Status = SupplyStatuses.Sent;
         supply.SentAt ??= now;
     }
@@ -2133,6 +2141,11 @@ app.MapPut("/api/supplies/{id:guid}/status", async (
         if (!principal.IsInRole(UserRoles.Admin))
         {
             return Results.Forbid();
+        }
+
+        if (supply.Status != SupplyStatuses.Sent)
+        {
+            return Results.BadRequest("Принять можно только отправленную поставку.");
         }
 
         supply.Status = SupplyStatuses.Accepted;
@@ -2146,6 +2159,46 @@ app.MapPut("/api/supplies/{id:guid}/status", async (
     AuditLogWriter.Add(db, principal, $"Статус поставки: {request.Status}", "Supply", supply.Id.ToString(), supply.Status);
     await db.SaveChangesAsync();
     return Results.NoContent();
+}).RequireAuthorization();
+
+app.MapGet("/api/supplies/{id:guid}/order-export", async (Guid id, AppDbContext db, ClaimsPrincipal principal) =>
+{
+    if (!await FeatureAccess.HasAnyAsync(db, principal, FeatureAccess.Supplies))
+    {
+        return Results.Forbid();
+    }
+
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var supply = await db.Supplies
+        .AsNoTracking()
+        .Include(supply => supply.Items)
+        .FirstOrDefaultAsync(supply => supply.Id == id && supply.CompanyId == companyId);
+    if (supply is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (supply.Items.Count == 0 || supply.Items.Any(item => item.ActualOrderQuantity <= 0))
+    {
+        return Results.BadRequest("Скачать заказ можно только когда все товары заказаны.");
+    }
+
+    var productIds = supply.Items
+        .Where(item => item.OzonProductId.HasValue)
+        .Select(item => item.OzonProductId!.Value)
+        .Distinct()
+        .ToList();
+    var supplierLinks = await db.ProductSupplierLinks
+        .AsNoTracking()
+        .Where(link => link.CompanyId == companyId && productIds.Contains(link.OzonProductId))
+        .OrderBy(link => link.SupplierName)
+        .ToListAsync();
+
+    var content = ExcelSupplyImport.CreateOrderExport(supply, supplierLinks);
+    return Results.File(
+        content,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        $"supply-order-{supply.CreatedAt:yyyyMMdd-HHmm}.xlsx");
 }).RequireAuthorization();
 
 app.MapPut("/api/supplies/{id:guid}", async (
@@ -2186,7 +2239,7 @@ app.MapPut("/api/supplies/{id:guid}", async (
         OfferId = item.IsReserve ? string.Empty : item.OfferId.Trim(),
         ProductName = item.ProductName.Trim(),
         Quantity = item.Quantity,
-        ActualOrderQuantity = item.ActualOrderQuantity ?? item.Quantity,
+        ActualOrderQuantity = item.ActualOrderQuantity ?? 0,
         SupplierName = item.SupplierName.Trim(),
         SupplierUrl = item.SupplierUrl.Trim(),
         IsReserve = item.IsReserve
@@ -3226,6 +3279,70 @@ static class ExcelSupplyImport
         return memory.ToArray();
     }
 
+    public static byte[] CreateOrderExport(Supply supply, IReadOnlyList<ProductSupplierLink> supplierLinks)
+    {
+        using var memory = new MemoryStream();
+        using (var archive = new ZipArchive(memory, ZipArchiveMode.Create, true))
+        {
+            WriteEntry(archive, "[Content_Types].xml", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+                  <Default Extension="xml" ContentType="application/xml"/>
+                  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+                  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+                </Types>
+                """);
+            WriteEntry(archive, "_rels/.rels", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+                </Relationships>
+                """);
+            WriteEntry(archive, "xl/_rels/workbook.xml.rels", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+                </Relationships>
+                """);
+            WriteEntry(archive, "xl/workbook.xml", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+                  <sheets><sheet name="Заказ" sheetId="1" r:id="rId1"/></sheets>
+                </workbook>
+                """);
+
+            var linksByProductId = supplierLinks
+                .GroupBy(link => link.OzonProductId)
+                .ToDictionary(group => group.Key, group => group.First().SupplierUrl);
+            var rows = new List<string[]>
+            {
+                new[] { "Название товара", "Количество нужно", "Ссылка на поставщика", "Факт заказа" }
+            };
+            rows.AddRange(supply.Items
+                .OrderBy(item => item.ProductName)
+                .Select(item =>
+                {
+                    var supplierUrl = !string.IsNullOrWhiteSpace(item.SupplierUrl)
+                        ? item.SupplierUrl
+                        : item.OzonProductId.HasValue && linksByProductId.TryGetValue(item.OzonProductId.Value, out var linkedUrl)
+                            ? linkedUrl
+                            : string.Empty;
+                    return new[]
+                    {
+                        item.ProductName,
+                        item.Quantity.ToString(CultureInfo.InvariantCulture),
+                        supplierUrl,
+                        item.ActualOrderQuantity.ToString(CultureInfo.InvariantCulture)
+                    };
+                }));
+
+            WriteEntry(archive, "xl/worksheets/sheet1.xml", CreateWorksheet(rows));
+        }
+
+        return memory.ToArray();
+    }
+
     public static List<CreateSupplyItemRequest> ReadSupplyItems(Stream stream)
     {
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
@@ -3262,7 +3379,7 @@ static class ExcelSupplyImport
                 throw new InvalidOperationException($"Строка {index + 2}: для постоянного товара нужен артикул.");
             }
 
-            return new CreateSupplyItemRequest(productId, offerId, productName, quantity, quantity, isReserve);
+            return new CreateSupplyItemRequest(productId, offerId, productName, quantity, 0, isReserve);
         }).ToList();
     }
 

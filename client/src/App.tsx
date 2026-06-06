@@ -2180,7 +2180,7 @@ function App() {
         offerId: product.offerId,
         productName: product.name,
         quantity,
-        actualOrderQuantity: quantity,
+        actualOrderQuantity: 0,
         supplierName: '',
         supplierUrl: '',
         isReserve: false,
@@ -2211,7 +2211,7 @@ function App() {
         offerId: '',
         productName: reserveProductName.trim(),
         quantity,
-        actualOrderQuantity: quantity,
+        actualOrderQuantity: 0,
         supplierName: reserveSupplierName.trim(),
         supplierUrl: reserveSupplierUrl.trim(),
         isReserve: true,
@@ -2277,6 +2277,31 @@ function App() {
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
+  }
+
+  async function downloadSupplyOrder(id: string) {
+    const response = await fetch(`/api/supplies/${id}/order-export`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      setSupplyStatus(getApiErrorMessage(await response.text(), 'Не удалось скачать таблицу заказа'))
+      return
+    }
+
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+
+    link.href = url
+    link.download = `supply-order-${id}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    setSupplyStatus('Таблица заказа скачана')
   }
 
   async function uploadSupplyExcel() {
@@ -2426,7 +2451,7 @@ function App() {
         offerId: product.offerId,
         productName: product.name,
         quantity,
-        actualOrderQuantity: quantity,
+        actualOrderQuantity: 0,
         supplierName: '',
         supplierUrl: '',
         isReserve: false,
@@ -2456,7 +2481,7 @@ function App() {
         offerId: '',
         productName: editReserveProductName.trim(),
         quantity,
-        actualOrderQuantity: quantity,
+        actualOrderQuantity: 0,
         supplierName: editReserveSupplierName.trim(),
         supplierUrl: editReserveSupplierUrl.trim(),
         isReserve: true,
@@ -4082,6 +4107,7 @@ function App() {
                   onDeleteSupply={deleteSupply}
                     onArchiveSupply={archiveSupply}
                     onStatusChange={updateSupplyStatus}
+                    onDownloadOrder={downloadSupplyOrder}
                     supplyActualOrderEdits={supplyActualOrderEdits}
                     setSupplyActualOrderEdits={setSupplyActualOrderEdits}
                     onActualOrderChange={updateSupplyItemActualOrder}
@@ -4120,6 +4146,7 @@ function App() {
                   onDeleteSupply={deleteSupply}
                   onArchiveSupply={archiveSupply}
                   onStatusChange={updateSupplyStatus}
+                  onDownloadOrder={downloadSupplyOrder}
                   supplyActualOrderEdits={supplyActualOrderEdits}
                   setSupplyActualOrderEdits={setSupplyActualOrderEdits}
                   onActualOrderChange={updateSupplyItemActualOrder}
@@ -4160,6 +4187,7 @@ function App() {
                   onDeleteSupply={deleteSupply}
                   onArchiveSupply={archiveSupply}
                   onStatusChange={updateSupplyStatus}
+                  onDownloadOrder={downloadSupplyOrder}
                   supplyActualOrderEdits={supplyActualOrderEdits}
                   setSupplyActualOrderEdits={setSupplyActualOrderEdits}
                   onActualOrderChange={updateSupplyItemActualOrder}
@@ -5379,6 +5407,7 @@ function SupplyTable({
   onDeleteSupply,
   onArchiveSupply,
   onStatusChange,
+  onDownloadOrder,
   supplyActualOrderEdits,
   setSupplyActualOrderEdits,
   onActualOrderChange,
@@ -5414,6 +5443,7 @@ function SupplyTable({
   onDeleteSupply: (id: string) => void
   onArchiveSupply: (id: string) => void
   onStatusChange: (id: string, status: SupplyStatus) => void
+  onDownloadOrder: (id: string) => void
   supplyActualOrderEdits: Record<string, string>
   setSupplyActualOrderEdits: Dispatch<SetStateAction<Record<string, string>>>
   onActualOrderChange: (itemId: string, fallbackQuantity: number) => void
@@ -5431,6 +5461,7 @@ function SupplyTable({
         const canEdit = !archiveMode && (userRole === 'Admin' || supply.status === 'Created')
         const isArchiveExpanded = expandedArchiveSupplyIds[supply.id] ?? false
         const showItems = (archiveMode && isArchiveExpanded) || isEditing || (!archiveMode && !hideItemsUntilEdit)
+        const allItemsOrdered = supply.items.length > 0 && supply.items.every((item) => item.actualOrderQuantity > 0)
         const rows: DraftSupplyItem[] = isEditing
           ? editSupplyItems
           : supply.items.map((item) => ({
@@ -5459,12 +5490,17 @@ function SupplyTable({
               <span className="status-pill">{translateSupplyStatus(supply.status)}</span>
               {(canEdit || archiveMode) && (
                 <span className="supply-status-actions">
-                  {!archiveMode && supply.status === 'Created' && (
-                    <button type="button" onClick={() => onStatusChange(supply.id, 'Sent')}>
-                      Отправлено
-                    </button>
+                  {!archiveMode && supply.status === 'Created' && allItemsOrdered && (
+                    <>
+                      <button type="button" onClick={() => onStatusChange(supply.id, 'Sent')}>
+                        Отправлено
+                      </button>
+                      <button type="button" onClick={() => onDownloadOrder(supply.id)}>
+                        Скачать Excel заказа
+                      </button>
+                    </>
                   )}
-                  {userRole === 'Admin' && !archiveMode && (
+                  {userRole === 'Admin' && !archiveMode && supply.status === 'Sent' && (
                     <>
                       <button type="button" onClick={() => onStatusChange(supply.id, 'Accepted')}>
                         Принято
