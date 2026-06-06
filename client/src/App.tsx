@@ -9,6 +9,7 @@ type User = {
   companyId: string
   companyName: string
   userName: string
+  email: string
   displayName: string
   position: string
   role: string
@@ -825,7 +826,7 @@ function App() {
     })
 
     if (!response.ok) {
-      setLoginError('Неверная компания, логин или пароль')
+      setLoginError('Неверная компания, логин/email или пароль')
       return
     }
 
@@ -849,6 +850,7 @@ function App() {
       body: JSON.stringify({
         companyName: formData.get('companyName'),
         userName: formData.get('userName'),
+        email: formData.get('email'),
         displayName: formData.get('displayName'),
         password: formData.get('password'),
       }),
@@ -2580,8 +2582,14 @@ function App() {
               <input name="displayName" autoComplete="name" required />
             </label>
           )}
+          {authMode === 'register' && (
+            <label>
+              Email
+              <input name="email" type="email" autoComplete="email" required />
+            </label>
+          )}
           <label>
-            Логин
+            {authMode === 'login' ? 'Логин или Email' : 'Логин'}
             <input name="userName" autoComplete="username" required />
           </label>
           <label>

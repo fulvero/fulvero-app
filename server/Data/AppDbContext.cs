@@ -34,7 +34,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<AppUser>(entity =>
         {
             entity.HasIndex(user => new { user.CompanyId, user.UserName }).IsUnique();
+            entity.HasIndex(user => new { user.CompanyId, user.Email })
+                .IsUnique()
+                .HasFilter("\"Email\" <> ''");
             entity.Property(user => user.UserName).HasMaxLength(80);
+            entity.Property(user => user.Email).HasMaxLength(180);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
             entity.Property(user => user.Position).HasMaxLength(160);
             entity.Property(user => user.AvatarFileName).HasMaxLength(260);

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Net.Mail;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -166,9 +167,16 @@ app.MapPost("/api/auth/register", async (RegisterCompanyRequest request, AppDbCo
 {
     if (string.IsNullOrWhiteSpace(request.CompanyName)
         || string.IsNullOrWhiteSpace(request.UserName)
+        || string.IsNullOrWhiteSpace(request.Email)
         || string.IsNullOrWhiteSpace(request.Password))
     {
-        return Results.BadRequest("Название компании, логин и пароль обязательны.");
+        return Results.BadRequest("Название компании, логин, email и пароль обязательны.");
+    }
+
+    var normalizedEmail = NormalizeEmail(request.Email);
+    if (normalizedEmail is null)
+    {
+        return Results.BadRequest("Введите корректный email.");
     }
 
     var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
@@ -190,6 +198,7 @@ app.MapPost("/api/auth/register", async (RegisterCompanyRequest request, AppDbCo
     {
         Company = company,
         UserName = request.UserName.Trim(),
+        Email = normalizedEmail,
         DisplayName = request.DisplayName.Trim(),
         PasswordHash = PasswordHasher.Hash(request.Password),
         Role = UserRoles.Admin
@@ -211,6 +220,15 @@ app.MapPost("/api/setup/admin", async (RegisterCompanyRequest request, AppDbCont
         return Results.Conflict("Первый админ уже создан.");
     }
 
+    var normalizedEmail = NormalizeEmail(request.Email);
+    if (string.IsNullOrWhiteSpace(request.CompanyName)
+        || string.IsNullOrWhiteSpace(request.UserName)
+        || normalizedEmail is null
+        || string.IsNullOrWhiteSpace(request.Password))
+    {
+        return Results.BadRequest("Название компании, логин, email и пароль обязательны.");
+    }
+
     var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
     var trialEndsAt = DateTimeOffset.UtcNow.AddDays(3);
     var company = new Company
@@ -225,6 +243,7 @@ app.MapPost("/api/setup/admin", async (RegisterCompanyRequest request, AppDbCont
     {
         Company = company,
         UserName = request.UserName.Trim(),
+        Email = normalizedEmail,
         DisplayName = request.DisplayName.Trim(),
         PasswordHash = PasswordHasher.Hash(request.Password),
         Role = UserRoles.Admin
@@ -277,9 +296,12 @@ app.MapPost("/api/auth/login", async (
     JwtTokenService tokenService) =>
 {
     var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
+    var loginValue = request.UserName.Trim();
+    var normalizedEmail = NormalizeEmail(loginValue);
     var user = await db.Users
         .Include(item => item.Company)
-        .SingleOrDefaultAsync(item => item.UserName == request.UserName
+        .SingleOrDefaultAsync(item => (item.UserName == loginValue
+                || (normalizedEmail != null && item.Email == normalizedEmail))
             && item.Company.LoginName == companyLoginName);
 
     if (user is null || !user.IsActive || !PasswordHasher.Verify(request.Password, user.PasswordHash))
@@ -2526,10 +2548,27 @@ if (hasStaticClient)
     app.MapFallbackToFile("index.html");
 }
 
+static string? NormalizeEmail(string? value)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return null;
+    }
+
+    try
+    {
+        return new MailAddress(value.Trim()).Address.ToLowerInvariant();
+    }
+    catch
+    {
+        return null;
+    }
+}
+
 app.Run();
 
 record Product(int Id, string Name, string Status, decimal Price);
-record RegisterCompanyRequest(string CompanyName, string UserName, string DisplayName, string Password);
+record RegisterCompanyRequest(string CompanyName, string UserName, string Email, string DisplayName, string Password);
 record LoginRequest(string CompanyName, string UserName, string Password);
 record AuthResponse(string Token, CurrentUserResponse User);
 record CurrentUserResponse(
@@ -2537,6 +2576,7 @@ record CurrentUserResponse(
     Guid CompanyId,
     string CompanyName,
     string UserName,
+    string Email,
     string DisplayName,
     string Position,
     string Role,
@@ -3093,6 +3133,7 @@ static class UserResponses
             user.CompanyId,
             user.Company?.Name ?? string.Empty,
             user.UserName,
+            user.Email,
             user.DisplayName,
             user.Position,
             user.Role,

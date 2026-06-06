@@ -6,6 +6,7 @@ public class AppUser
     public Guid CompanyId { get; set; }
     public Company Company { get; set; } = null!;
     public string UserName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string Position { get; set; } = string.Empty;
     public string AvatarFileName { get; set; } = string.Empty;
