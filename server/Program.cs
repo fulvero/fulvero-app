@@ -16,6 +16,7 @@ using Fulvero.Api.Mail;
 using Fulvero.Api.Models;
 using Fulvero.Api.Ozon;
 using Fulvero.Api.Security;
+using Fulvero.Api.Telegram;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -33,6 +34,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.Configure<OzonOptions>(builder.Configuration.GetSection("Ozon"));
 builder.Services.Configure<YooKassaOptions>(builder.Configuration.GetSection("YooKassa"));
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
+builder.Services.Configure<TelegramOptions>(builder.Configuration.GetSection("Telegram"));
 builder.Services.AddHttpClient<OzonApiClient>((serviceProvider, client) =>
 {
     var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OzonOptions>>().Value;
@@ -42,8 +44,11 @@ builder.Services.AddHttpClient("YooKassa", client =>
 {
     client.BaseAddress = new Uri("https://api.yookassa.ru");
 });
+builder.Services.AddHttpClient<TelegramBotClient>();
 builder.Services.AddScoped<EmailSender>();
 builder.Services.AddHostedService<SubscriptionEmailReminderService>();
+builder.Services.AddHostedService<TelegramUpdatePollingService>();
+builder.Services.AddHostedService<TelegramNotificationService>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -957,6 +962,72 @@ app.MapPut("/api/integrations/ozon", async (
         AppPublicText.MaskSecret(normalizedClientId),
         AppPublicText.MaskSecret(normalizedApiKey),
         DateTimeOffset.UtcNow));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+
+app.MapGet("/api/integrations/telegram", async (
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    TelegramBotClient bot,
+    CancellationToken cancellationToken) =>
+{
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var integration = await TelegramIntegrationAccess.EnsureAsync(db, companyId, cancellationToken);
+    return Results.Ok(TelegramIntegrationAccess.ToResponse(integration, bot));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+
+app.MapPost("/api/integrations/telegram/regenerate", async (
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    TelegramBotClient bot,
+    CancellationToken cancellationToken) =>
+{
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var integration = await TelegramIntegrationAccess.EnsureAsync(db, companyId, cancellationToken);
+    integration.LinkCode = TelegramIntegrationAccess.CreateCode();
+    integration.ChatId = null;
+    integration.ChatTitle = string.Empty;
+    integration.LinkedAt = null;
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(TelegramIntegrationAccess.ToResponse(integration, bot));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+
+app.MapPost("/api/integrations/telegram/test", async (
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    TelegramBotClient bot,
+    CancellationToken cancellationToken) =>
+{
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var integration = await db.TelegramIntegrations.AsNoTracking().FirstOrDefaultAsync(item => item.CompanyId == companyId, cancellationToken);
+    if (integration?.ChatId is null)
+    {
+        return Results.BadRequest("Telegram-чат еще не привязан.");
+    }
+
+    await bot.SendMessageAsync(
+        integration.ChatId.Value,
+        "✅ Fulvero подключен к Telegram\n\nУведомления будут приходить сюда.",
+        cancellationToken);
+    return Results.Ok(new TelegramTestResponse("Тестовое уведомление отправлено."));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+
+app.MapDelete("/api/integrations/telegram", async (
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    CancellationToken cancellationToken) =>
+{
+    var companyId = CompanyAccess.GetCompanyId(principal);
+    var integration = await db.TelegramIntegrations.FirstOrDefaultAsync(item => item.CompanyId == companyId, cancellationToken);
+    if (integration is null)
+    {
+        return Results.NoContent();
+    }
+
+    integration.ChatId = null;
+    integration.ChatTitle = string.Empty;
+    integration.LinkedAt = null;
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.NoContent();
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
 app.MapGet("/api/chat/users", async (AppDbContext db, ClaimsPrincipal principal) =>
@@ -3147,6 +3218,14 @@ record OzonIntegrationStatusResponse(
     string ApiKeyMasked,
     DateTimeOffset CheckedAt);
 record OzonCredentials(string ClientId, string ApiKey);
+record TelegramIntegrationResponse(
+    bool BotConfigured,
+    bool Linked,
+    string LinkCode,
+    string StartUrl,
+    string ChatTitle,
+    DateTimeOffset? LinkedAt);
+record TelegramTestResponse(string Message);
 
 static class ProductSettingSync
 {
@@ -3365,6 +3444,26 @@ static class CompanyAccess
             : new OzonCredentials(clientId, apiKey);
     }
 
+    public static async Task<OzonCredentials> GetOzonCredentialsForCompanyAsync(
+        AppDbContext db,
+        Guid companyId,
+        IDataProtector protector,
+        OzonOptions fallbackOptions,
+        CancellationToken cancellationToken)
+    {
+        var company = await db.Companies.AsNoTracking().FirstOrDefaultAsync(item => item.Id == companyId, cancellationToken);
+        if (company is null)
+        {
+            return new OzonCredentials(fallbackOptions.ClientId, fallbackOptions.ApiKey);
+        }
+
+        var clientId = UnprotectOrEmpty(protector, company.OzonClientIdProtected);
+        var apiKey = UnprotectOrEmpty(protector, company.OzonApiKeyProtected);
+        return string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(apiKey)
+            ? new OzonCredentials(fallbackOptions.ClientId, fallbackOptions.ApiKey)
+            : new OzonCredentials(clientId, apiKey);
+    }
+
     public static string UnprotectOrEmpty(IDataProtector protector, string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -3381,6 +3480,39 @@ static class CompanyAccess
             return string.Empty;
         }
     }
+}
+
+static class TelegramIntegrationAccess
+{
+    public static async Task<TelegramIntegration> EnsureAsync(AppDbContext db, Guid companyId, CancellationToken cancellationToken)
+    {
+        var integration = await db.TelegramIntegrations.FirstOrDefaultAsync(item => item.CompanyId == companyId, cancellationToken);
+        if (integration is not null)
+        {
+            return integration;
+        }
+
+        integration = new TelegramIntegration
+        {
+            CompanyId = companyId,
+            LinkCode = CreateCode()
+        };
+        db.TelegramIntegrations.Add(integration);
+        await db.SaveChangesAsync(cancellationToken);
+        return integration;
+    }
+
+    public static TelegramIntegrationResponse ToResponse(TelegramIntegration integration, TelegramBotClient bot) =>
+        new(
+            bot.IsConfigured,
+            integration.ChatId is not null,
+            integration.LinkCode,
+            bot.GetStartUrl(integration.LinkCode),
+            integration.ChatTitle,
+            integration.LinkedAt);
+
+    public static string CreateCode() =>
+        Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant();
 }
 
 static class SubscriptionAccess

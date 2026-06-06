@@ -2308,6 +2308,55 @@
   cursor: pointer;
 }
 
+.integration-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+  padding: 20px;
+  border-bottom: 1px solid #d9dee7;
+}
+
+.integration-card h3 {
+  margin: 0 0 8px;
+  color: #121826;
+}
+
+.integration-card p {
+  margin: 0 0 8px;
+  color: #475467;
+  line-height: 1.5;
+}
+
+.integration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  max-width: 460px;
+}
+
+.integration-actions button,
+.button-link {
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #ffffff;
+  background: #2563eb;
+  font-weight: 900;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.integration-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.status-line {
+  font-weight: 800;
+}
+
 .backup-panel {
   padding: 18px 20px;
   border-bottom: 1px solid #edf0f5;

@@ -18,6 +18,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<BillingPayment> BillingPayments => Set<BillingPayment>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<TelegramIntegration> TelegramIntegrations => Set<TelegramIntegration>();
+    public DbSet<TelegramNotificationState> TelegramNotificationStates => Set<TelegramNotificationState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,6 +75,28 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasOne(token => token.User)
                 .WithMany()
                 .HasForeignKey(token => token.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TelegramIntegration>(entity =>
+        {
+            entity.HasIndex(item => item.CompanyId).IsUnique();
+            entity.HasIndex(item => item.LinkCode).IsUnique();
+            entity.Property(item => item.LinkCode).HasMaxLength(80);
+            entity.Property(item => item.ChatTitle).HasMaxLength(240);
+            entity.HasOne(item => item.Company)
+                .WithMany()
+                .HasForeignKey(item => item.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TelegramNotificationState>(entity =>
+        {
+            entity.HasIndex(item => new { item.CompanyId, item.NotificationKey }).IsUnique();
+            entity.Property(item => item.NotificationKey).HasMaxLength(260);
+            entity.HasOne(item => item.Company)
+                .WithMany()
+                .HasForeignKey(item => item.CompanyId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

@@ -57,6 +57,11 @@ services:
       Smtp__ReplyToEmail: ${SMTP_REPLY_TO_EMAIL:-}
       Smtp__LogoFilePath: ${SMTP_LOGO_FILE_PATH:-wwwroot/email-banner.jpg}
       Smtp__LogoUrl: ${SMTP_LOGO_URL:-https://fulvero.ru/assets/fulvero-logo.png}
+      Telegram__Enabled: ${TELEGRAM_ENABLED:-false}
+      Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
+      Telegram__BotUsername: ${TELEGRAM_BOT_USERNAME:-}
+      Telegram__PollingIntervalSeconds: ${TELEGRAM_POLLING_INTERVAL_SECONDS:-5}
+      Telegram__NotificationIntervalMinutes: ${TELEGRAM_NOTIFICATION_INTERVAL_MINUTES:-720}
 
   adminer:
     image: adminer:latest

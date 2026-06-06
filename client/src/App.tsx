@@ -65,6 +65,15 @@ type OzonIntegrationStatus = {
   checkedAt: string
 }
 
+type TelegramIntegrationStatus = {
+  botConfigured: boolean
+  linked: boolean
+  linkCode: string
+  startUrl: string
+  chatTitle: string
+  linkedAt?: string
+}
+
 type OzonProduct = {
   productId: number
   offerId: string
@@ -342,6 +351,8 @@ function App() {
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
   const [ozonIntegration, setOzonIntegration] = useState<OzonIntegrationStatus | null>(null)
   const [ozonIntegrationStatus, setOzonIntegrationStatus] = useState('')
+  const [telegramIntegration, setTelegramIntegration] = useState<TelegramIntegrationStatus | null>(null)
+  const [telegramIntegrationStatus, setTelegramIntegrationStatus] = useState('')
   const [ozonClientId, setOzonClientId] = useState('')
   const [ozonApiKey, setOzonApiKey] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
@@ -686,6 +697,7 @@ function App() {
     loadAuditLogs()
     loadSystemHealth()
     loadOzonIntegrationStatus()
+    loadTelegramIntegrationStatus()
     const intervalId = window.setInterval(() => {
       loadUsers()
       loadAuditLogs()
@@ -1153,6 +1165,82 @@ function App() {
     setOzonIntegrationStatus(data.message)
     setOzonClientId('')
     setOzonApiKey('')
+  }
+
+  async function loadTelegramIntegrationStatus() {
+    setTelegramIntegrationStatus('Проверяем Telegram...')
+    const response = await fetch('/api/integrations/telegram', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      setTelegramIntegrationStatus('Не удалось проверить Telegram')
+      return
+    }
+
+    const data: TelegramIntegrationStatus = await response.json()
+    setTelegramIntegration(data)
+    setTelegramIntegrationStatus(data.linked ? 'Telegram подключен' : 'Telegram ожидает привязки')
+  }
+
+  async function regenerateTelegramLink() {
+    setTelegramIntegrationStatus('Создаем новый код привязки...')
+    const response = await fetch('/api/integrations/telegram/regenerate', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      setTelegramIntegrationStatus(getApiErrorMessage(await response.text(), 'Не удалось обновить код Telegram'))
+      return
+    }
+
+    const data: TelegramIntegrationStatus = await response.json()
+    setTelegramIntegration(data)
+    setTelegramIntegrationStatus('Новый код создан. Запустите бота по ссылке.')
+  }
+
+  async function sendTelegramTest() {
+    setTelegramIntegrationStatus('Отправляем тестовое уведомление...')
+    const response = await fetch('/api/integrations/telegram/test', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      setTelegramIntegrationStatus(getApiErrorMessage(await response.text(), 'Не удалось отправить тест Telegram'))
+      return
+    }
+
+    const data: { message: string } = await response.json()
+    setTelegramIntegrationStatus(data.message)
+  }
+
+  async function unlinkTelegram() {
+    if (!window.confirm('Отвязать Telegram-чат от компании?')) {
+      return
+    }
+
+    const response = await fetch('/api/integrations/telegram', {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      setTelegramIntegrationStatus('Не удалось отвязать Telegram')
+      return
+    }
+
+    await loadTelegramIntegrationStatus()
+    setTelegramIntegrationStatus('Telegram-чат отвязан')
   }
 
   async function exportTaskArchive() {
@@ -4614,6 +4702,26 @@ function App() {
                       : 'Введите Ozon ID и API-ключ.'}
                   </small>
                 </article>
+
+                <article className="settings-card">
+                  <span>Telegram</span>
+                  <strong>
+                    {telegramIntegration
+                      ? telegramIntegration.linked
+                        ? 'Подключено'
+                        : telegramIntegration.botConfigured
+                          ? 'Ожидает привязки'
+                          : 'Бот не настроен'
+                      : 'Не проверено'}
+                  </strong>
+                  <small>
+                    {telegramIntegration?.linked
+                      ? `Чат: ${telegramIntegration.chatTitle || 'Telegram'}`
+                      : telegramIntegration?.botConfigured
+                        ? `Код: ${telegramIntegration.linkCode}`
+                        : 'Добавьте TELEGRAM_BOT_TOKEN и TELEGRAM_BOT_USERNAME в env.'}
+                  </small>
+                </article>
               </div>
 
               <form className="user-form" onSubmit={saveOzonIntegration}>
@@ -4639,6 +4747,40 @@ function App() {
                 </label>
                 <button type="submit">Сохранить Ozon</button>
               </form>
+
+              <section className="integration-card">
+                <div>
+                  <p className="eyebrow">Telegram-бот</p>
+                  <h3>Уведомления в Telegram</h3>
+                  <p>
+                    Привяжите чат компании, чтобы получать критические уведомления по остаткам, поставкам,
+                    производству и подписке.
+                  </p>
+                  {telegramIntegrationStatus && <p className="status-line">{telegramIntegrationStatus}</p>}
+                  {telegramIntegration?.startUrl && !telegramIntegration.linked && (
+                    <p className="trial-note">Откройте бота и нажмите Start. Код привязки уже добавлен в ссылку.</p>
+                  )}
+                </div>
+                <div className="integration-actions">
+                  {telegramIntegration?.startUrl && !telegramIntegration.linked && (
+                    <a className="button-link" href={telegramIntegration.startUrl} target="_blank" rel="noreferrer">
+                      Открыть Telegram-бота
+                    </a>
+                  )}
+                  <button type="button" onClick={loadTelegramIntegrationStatus}>
+                    Проверить Telegram
+                  </button>
+                  <button type="button" onClick={regenerateTelegramLink}>
+                    Новый код
+                  </button>
+                  <button type="button" onClick={sendTelegramTest} disabled={!telegramIntegration?.linked}>
+                    Отправить тест
+                  </button>
+                  <button type="button" className="danger" onClick={unlinkTelegram} disabled={!telegramIntegration?.linked}>
+                    Отвязать
+                  </button>
+                </div>
+              </section>
             </section>
           )}
 
