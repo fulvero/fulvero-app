@@ -3,6 +3,7 @@ using System.Net.Security;
 using System.Net.Mail;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 
 namespace Fulvero.Api.Mail;
@@ -12,7 +13,16 @@ public class EmailSender(
     IWebHostEnvironment environment,
     ILogger<EmailSender> logger)
 {
-    public async Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
+    public Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default) =>
+        SendAsync(toEmail, subject, htmlBody, null, true, cancellationToken);
+
+    public async Task SendAsync(
+        string toEmail,
+        string subject,
+        string htmlBody,
+        string? textBody,
+        bool includeBrandImage,
+        CancellationToken cancellationToken = default)
     {
         var value = options.CurrentValue;
         if (!value.Enabled)
@@ -33,8 +43,15 @@ public class EmailSender(
 
         try
         {
-            var logo = LoadLogoBytes(value);
-            await SendSmtpAsync(value, toEmail, subject, WrapHtml(htmlBody, logo is not null), logo, cancellationToken);
+            var logo = includeBrandImage ? LoadLogoBytes(value) : null;
+            await SendSmtpAsync(
+                value,
+                toEmail,
+                subject,
+                WrapHtml(htmlBody, logo is not null),
+                textBody ?? PlainTextFromHtml(htmlBody),
+                logo,
+                cancellationToken);
         }
         catch (Exception exception)
         {
@@ -47,6 +64,7 @@ public class EmailSender(
         string toEmail,
         string subject,
         string htmlBody,
+        string textBody,
         byte[]? logoBytes,
         CancellationToken cancellationToken)
     {
@@ -90,12 +108,12 @@ public class EmailSender(
             };
             await CommandAsync(secureReader, secureWriter, $"EHLO {GetDomain(options.FromEmail)}", 250, cancellationToken);
             await AuthenticateAsync(secureReader, secureWriter, options, cancellationToken);
-            await SendMessageAsync(secureReader, secureWriter, options, toEmail, subject, htmlBody, logoBytes, cancellationToken);
+            await SendMessageAsync(secureReader, secureWriter, options, toEmail, subject, htmlBody, textBody, logoBytes, cancellationToken);
             return;
         }
 
         await AuthenticateAsync(reader, writer, options, cancellationToken);
-        await SendMessageAsync(reader, writer, options, toEmail, subject, htmlBody, logoBytes, cancellationToken);
+        await SendMessageAsync(reader, writer, options, toEmail, subject, htmlBody, textBody, logoBytes, cancellationToken);
     }
 
     private static async Task AuthenticateAsync(
@@ -116,6 +134,7 @@ public class EmailSender(
         string toEmail,
         string subject,
         string htmlBody,
+        string textBody,
         byte[]? logoBytes,
         CancellationToken cancellationToken)
     {
@@ -124,7 +143,7 @@ public class EmailSender(
         await CommandAsync(reader, writer, $"MAIL FROM:<{from.Address}>", 250, cancellationToken);
         await CommandAsync(reader, writer, $"RCPT TO:<{to.Address}>", 250, cancellationToken);
         await CommandAsync(reader, writer, "DATA", 354, cancellationToken);
-        await writer.WriteLineAsync(ComposeMessage(options, from, to, subject, htmlBody, logoBytes).AsMemory(), cancellationToken);
+        await writer.WriteLineAsync(ComposeMessage(options, from, to, subject, htmlBody, textBody, logoBytes).AsMemory(), cancellationToken);
         await writer.WriteLineAsync(".");
         await ExpectAsync(reader, 250, cancellationToken);
         await CommandAsync(reader, writer, "QUIT", 221, cancellationToken);
@@ -136,10 +155,13 @@ public class EmailSender(
         MailAddress to,
         string subject,
         string htmlBody,
+        string textBody,
         byte[]? logoBytes)
     {
-        var bodyBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlBody));
+        var htmlBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlBody));
+        var textBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(textBody));
         var boundary = $"fulvero-{Guid.NewGuid():N}";
+        var alternativeBoundary = $"fulvero-alt-{Guid.NewGuid():N}";
         var builder = new StringBuilder();
         builder.AppendLine($"From: {EncodeAddress(from)}");
         builder.AppendLine($"To: {EncodeAddress(to)}");
@@ -154,19 +176,38 @@ public class EmailSender(
         }
 
         builder.AppendLine("MIME-Version: 1.0");
-        builder.AppendLine($"Content-Type: multipart/related; boundary=\"{boundary}\"");
+        builder.AppendLine($"Content-Type: {(logoBytes is null ? "multipart/alternative" : "multipart/related")}; boundary=\"{boundary}\"");
         builder.AppendLine();
-        builder.AppendLine($"--{boundary}");
+
+        if (logoBytes is not null)
+        {
+            builder.AppendLine($"--{boundary}");
+            builder.AppendLine($"Content-Type: multipart/alternative; boundary=\"{alternativeBoundary}\"");
+            builder.AppendLine();
+        }
+
+        var contentBoundary = logoBytes is null ? boundary : alternativeBoundary;
+        builder.AppendLine($"--{contentBoundary}");
+        builder.AppendLine("Content-Type: text/plain; charset=utf-8");
+        builder.AppendLine("Content-Transfer-Encoding: base64");
+        builder.AppendLine();
+        foreach (var line in SplitBase64(textBase64))
+        {
+            builder.AppendLine(line);
+        }
+
+        builder.AppendLine($"--{contentBoundary}");
         builder.AppendLine("Content-Type: text/html; charset=utf-8");
         builder.AppendLine("Content-Transfer-Encoding: base64");
         builder.AppendLine();
-        foreach (var line in SplitBase64(bodyBase64))
+        foreach (var line in SplitBase64(htmlBase64))
         {
             builder.AppendLine(line);
         }
 
         if (logoBytes is not null)
         {
+            builder.AppendLine($"--{alternativeBoundary}--");
             builder.AppendLine($"--{boundary}");
             builder.AppendLine("Content-Type: image/jpeg; name=\"fulvero-banner.jpg\"");
             builder.AppendLine("Content-Transfer-Encoding: base64");
@@ -217,6 +258,19 @@ public class EmailSender(
     private static IEnumerable<string> SplitBase64(string value) =>
         Enumerable.Range(0, (value.Length + 75) / 76)
             .Select(index => value.Substring(index * 76, Math.Min(76, value.Length - index * 76)));
+
+    private static string PlainTextFromHtml(string html)
+    {
+        var withBreaks = Regex.Replace(html, @"</(p|div|h1|h2|h3|li)>", "\n", RegexOptions.IgnoreCase);
+        var withoutTags = Regex.Replace(withBreaks, "<.*?>", " ");
+        return WebUtility.HtmlDecode(withoutTags)
+            .Replace("\r", string.Empty)
+            .Split('\n')
+            .Select(line => Regex.Replace(line, @"\s+", " ").Trim())
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Aggregate(new StringBuilder(), (builder, line) => builder.AppendLine(line))
+            .ToString();
+    }
 
     private static string EncodeAddress(MailAddress address) =>
         string.IsNullOrWhiteSpace(address.DisplayName)
