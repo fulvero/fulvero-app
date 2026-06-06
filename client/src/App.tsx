@@ -3051,25 +3051,33 @@ function App() {
                     <span><b>{analytics ? formatPlainNumber(analytics.cancelledUnitsTotal ?? 0) : '-'}</b><small>отменено, шт.</small></span>
                     <span><b>{analytics ? formatPlainNumber(analytics.accountBalance?.amount ?? 0) : '-'}</b><small>на счету сейчас</small></span>
                   </div>
-                  <div className="sales-chart-meta">
-                    <span><i /> Продажи по дням, шт.</span>
-                    <small>Столбцы считают заказы Ozon, даже если товар еще не забрали или он в пути</small>
-                  </div>
-                  <div className="sales-chart" aria-label="График реальных продаж за 30 дней">
-                    {dashboardSalesDays.map((day, index) => (
-                      <span className="sales-chart-day" key={day.date}>
-                        <i
-                          title={`${formatDateShort(day.date)}: ${formatPlainNumber(day.quantity)} шт., ${formatPlainNumber(day.revenue)}`}
-                          style={{
-                            height: `${Math.max(6, Math.round((day.quantity / maxDashboardSales) * 100))}%`,
-                            opacity: day.quantity > 0 ? 1 : 0.28,
-                          }}
-                        />
-                        {(index === 0 || index === dashboardSalesDays.length - 1 || index % 7 === 0) && (
-                          <small>{formatDateShort(day.date)}</small>
-                        )}
-                      </span>
-                    ))}
+                  <div className="sales-chart-shell">
+                    <div className="sales-chart-scale left-scale" aria-hidden="true">
+                      <span>{formatPlainNumber(maxDashboardSales)}</span>
+                      <span>{formatPlainNumber(maxDashboardSales / 2)}</span>
+                      <span>0</span>
+                    </div>
+                    <div className="sales-chart" aria-label="График реальных продаж за 30 дней">
+                      {dashboardSalesDays.map((day, index) => (
+                        <span className="sales-chart-day" key={day.date}>
+                          <i
+                            title={`${formatDateShort(day.date)}: ${formatPlainNumber(day.quantity)} шт., ${formatPlainNumber(day.revenue)}`}
+                            style={{
+                              height: `${Math.max(6, Math.round((day.quantity / maxDashboardSales) * 100))}%`,
+                              opacity: day.quantity > 0 ? 1 : 0.28,
+                            }}
+                          />
+                          {(index === 0 || index === dashboardSalesDays.length - 1 || index % 7 === 0) && (
+                            <small>{formatDateShort(day.date)}</small>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="sales-chart-scale right-scale" aria-hidden="true">
+                      <span>шт.</span>
+                      <span>{formatPlainNumber(maxDashboardSales / 2)}</span>
+                      <span>0</span>
+                    </div>
                   </div>
                 </article>
               </div>
