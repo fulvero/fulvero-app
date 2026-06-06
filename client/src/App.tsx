@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Dispatch, FormEvent, SetStateAction } from 'react'
+import type { ChangeEvent, Dispatch, FormEvent, SetStateAction } from 'react'
 import * as signalR from '@microsoft/signalr'
 import fulveroLogo from './assets/fulvero-logo.png'
 import './App.css'
@@ -1413,7 +1413,11 @@ function App() {
     })
 
     if (!response.ok) {
-      setProfileStatus(await response.text() || 'Не удалось загрузить фото')
+      setProfileStatus(
+        response.status === 413
+          ? 'Фотография слишком большая. Выберите фото меньше или сожмите изображение.'
+          : await response.text() || 'Не удалось загрузить фото',
+      )
       return
     }
 
@@ -1422,6 +1426,32 @@ function App() {
     setUser(updatedUser)
     setProfileAvatar(null)
     setProfileStatus('Фото обновлено')
+  }
+
+  async function handleProfileAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null
+    if (!file) {
+      setProfileAvatar(null)
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setProfileAvatar(null)
+      setProfileStatus('Выберите файл изображения')
+      return
+    }
+
+    setProfileStatus('Подготавливаем фото...')
+    try {
+      const prepared = await prepareAvatarFile(file)
+      setProfileAvatar(prepared)
+      setProfileStatus(prepared.size < file.size ? 'Фото сжато и готово к загрузке' : 'Фото готово к загрузке')
+    } catch {
+      setProfileAvatar(file)
+      setProfileStatus('Не удалось сжать фото, попробуйте загрузить исходный файл')
+    } finally {
+      event.target.value = ''
+    }
   }
 
   async function loadOzonProducts() {
@@ -2759,11 +2789,7 @@ function App() {
             <div className="profile-card">
               <label className="profile-avatar profile-avatar-upload">
                 {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : <span>Загрузить фото</span>}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) => setProfileAvatar(event.target.files?.[0] ?? null)}
-                />
+                <input type="file" accept="image/*" onChange={handleProfileAvatarChange} />
               </label>
               <span className="profile-card-details">
                 <strong>{user?.displayName || user?.userName}</strong>
@@ -6200,6 +6226,65 @@ function getSubscriptionRemainingText(value?: string) {
   }
 
   return days > 0 ? `До конца оплаченного месяца: ${days} дн.` : 'Оплаченный месяц закончился'
+}
+
+async function prepareAvatarFile(file: File) {
+  const maxSize = 900 * 1024
+  const maxSide = 512
+
+  if (file.size <= maxSize && file.type !== 'image/png') {
+    return file
+  }
+
+  const dataUrl = await readFileAsDataUrl(file)
+  const image = await loadImage(dataUrl)
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight))
+  const width = Math.max(1, Math.round(image.naturalWidth * scale))
+  const height = Math.max(1, Math.round(image.naturalHeight * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) {
+    return file
+  }
+
+  context.drawImage(image, 0, 0, width, height)
+  const blob = await canvasToBlob(canvas, 'image/jpeg', 0.86)
+  if (!blob) {
+    return file
+  }
+
+  if (file.size <= maxSize && blob.size >= file.size) {
+    return file
+  }
+
+  const baseName = file.name.replace(/\.[^.]+$/, '') || 'avatar'
+  return new File([blob], `${baseName}.jpg`, { type: 'image/jpeg' })
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = reject
+    image.src = src
+  })
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, type, quality)
+  })
 }
 
 export default App
