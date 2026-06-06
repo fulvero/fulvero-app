@@ -221,7 +221,6 @@ p, li { color: rgba(236, 244, 255, 0.72); line-height: 1.55; }
 .mini-bars i { height: 8px; border-radius: 999px; background: #b8dcff; }
 .mini-bars .mid { height: 46px; background: linear-gradient(180deg, #2563eb, #35b8f5); }
 .mini-bars .high { height: 62px; background: linear-gradient(180deg, #2563eb, #35b8f5); }
-.feature-grid a { color: #38a7ff; font-weight: 900; }
 
 .three-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .big-card h2 { text-align: left; }
