@@ -813,6 +813,8 @@ app.MapPut("/api/integrations/ozon", async (
     }
 
     var companyId = CompanyAccess.GetCompanyId(principal);
+    var normalizedClientId = request.ClientId.Trim();
+    var normalizedApiKey = request.ApiKey.Trim();
     var company = await db.Companies.FindAsync(companyId);
     if (company is null)
     {
@@ -820,8 +822,23 @@ app.MapPut("/api/integrations/ozon", async (
     }
 
     var protector = dataProtectionProvider.CreateProtector("Fulvero.OzonCredentials.v1");
-    company.OzonClientIdProtected = protector.Protect(request.ClientId.Trim());
-    company.OzonApiKeyProtected = protector.Protect(request.ApiKey.Trim());
+    var otherCompanies = await db.Companies
+        .AsNoTracking()
+        .Where(item => item.Id != companyId && item.OzonClientIdProtected != string.Empty)
+        .Select(item => new { item.Id, item.Name, item.OzonClientIdProtected })
+        .ToListAsync();
+    var alreadyUsed = otherCompanies.Any(item =>
+        string.Equals(
+            CompanyAccess.UnprotectOrEmpty(protector, item.OzonClientIdProtected),
+            normalizedClientId,
+            StringComparison.OrdinalIgnoreCase));
+    if (alreadyUsed)
+    {
+        return Results.Conflict("Этот Ozon ID уже подключен к другой компании.");
+    }
+
+    company.OzonClientIdProtected = protector.Protect(normalizedClientId);
+    company.OzonApiKeyProtected = protector.Protect(normalizedApiKey);
 
     AuditLogWriter.Add(db, principal, "Настройка Ozon API", "Company", company.Id.ToString(), company.Name);
     await db.SaveChangesAsync();
@@ -831,8 +848,8 @@ app.MapPut("/api/integrations/ozon", async (
         false,
         "Ozon ID и API-ключ сохранены. Нажмите проверку, чтобы убедиться, что доступ работает.",
         string.Empty,
-        AppPublicText.MaskSecret(request.ClientId),
-        AppPublicText.MaskSecret(request.ApiKey),
+        AppPublicText.MaskSecret(normalizedClientId),
+        AppPublicText.MaskSecret(normalizedApiKey),
         DateTimeOffset.UtcNow));
 }).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
@@ -3021,7 +3038,7 @@ static class CompanyAccess
             : new OzonCredentials(clientId, apiKey);
     }
 
-    private static string UnprotectOrEmpty(IDataProtector protector, string value)
+    public static string UnprotectOrEmpty(IDataProtector protector, string value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {

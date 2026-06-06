@@ -1412,6 +1412,7 @@
 }
 
 .dashboard-card > button,
+.dashboard-inline-new > button,
 .dashboard-actions button {
   border: 0;
   border-radius: 8px;
@@ -1482,11 +1483,11 @@
 
 .sales-chart {
   display: grid;
-  grid-template-columns: repeat(30, minmax(22px, 1fr));
+  grid-template-columns: repeat(30, minmax(0, 1fr));
   align-items: end;
-  gap: 7px;
+  gap: 6px;
   min-height: 180px;
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .sales-chart-day {
