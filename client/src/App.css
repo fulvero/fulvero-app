@@ -705,6 +705,51 @@
   color: #677083;
 }
 
+.product-editor-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #edf0f5;
+  background: #f8fafc;
+}
+
+.product-editor-toolbar label {
+  display: grid;
+  gap: 7px;
+  width: min(560px, 100%);
+  color: #344054;
+  font-weight: 900;
+}
+
+.product-editor-toolbar input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cfd6e3;
+  border-radius: 8px;
+  padding: 0 14px;
+  color: #121826;
+  background: #ffffff;
+  font: inherit;
+  font-weight: 700;
+}
+
+.product-editor-toolbar input:focus {
+  border-color: #2563eb;
+  outline: 3px solid rgba(37, 99, 235, 0.12);
+}
+
+.product-editor-toolbar strong {
+  flex: 0 0 auto;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  padding: 9px 12px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 13px;
+}
+
 .empty-state {
   padding: 40px 20px;
   color: #344054;
@@ -1284,6 +1329,10 @@
   grid-column: span 2;
 }
 
+.dashboard-card-with-new {
+  gap: 14px;
+}
+
 .dashboard-card-head {
   display: flex;
   align-items: flex-start;
@@ -1337,7 +1386,7 @@
 }
 
 .chart-summary {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
 .attention-list span,
@@ -1373,6 +1422,31 @@
   font: inherit;
   font-weight: 800;
   cursor: pointer;
+}
+
+.dashboard-inline-new {
+  display: grid;
+  gap: 12px;
+  margin-top: 2px;
+  border-top: 1px solid #edf0f5;
+  padding-top: 14px;
+}
+
+.dashboard-inline-new .dashboard-card-head {
+  align-items: center;
+}
+
+.compact-new-products {
+  gap: 6px;
+  max-height: 126px;
+  overflow: auto;
+}
+
+.compact-new-products span {
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
 }
 
 .sales-chart-meta {
@@ -1439,17 +1513,6 @@
   border-radius: 999px;
   background: linear-gradient(180deg, #2563eb, #38bdf8);
   box-shadow: 0 8px 18px rgba(37, 99, 235, 0.16);
-}
-
-.sales-chart-day b {
-  position: absolute;
-  left: 50%;
-  transform: translate(-50%, -6px);
-  color: #344054;
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 1;
-  pointer-events: none;
 }
 
 .sales-chart-day small {

@@ -184,8 +184,6 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         var commissionTotal = productRows.Sum(row => row.CommissionAmount);
         var payoutTotal = productRows.Sum(row => row.Payout);
         var logisticsTotal = productRows.Sum(row => row.LogisticsAmount);
-        var orderedUnitsTotal = productRows.Count(row => row.Revenue > 0);
-
         var postings = await GetFboPostingsAsync(dateFrom, dateTo, cancellationToken);
         postings.AddRange(await GetFbsPostingsAsync(dateFrom, dateTo, cancellationToken));
 
@@ -210,6 +208,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
                 group.Sum(item => item.Revenue)))
             .OrderBy(row => row.Date)
             .ToList();
+        var orderedUnitsTotal = dailySales.Sum(row => row.Quantity);
 
         var topProducts = postings
             .Where(posting => posting.Status != "cancelled")
@@ -230,6 +229,10 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             .OrderByDescending(row => row.Quantity)
             .ThenByDescending(row => row.Revenue)
             .ToList();
+        var cancelledUnitsTotal = postings
+            .Where(posting => posting.Status == "cancelled")
+            .SelectMany(posting => posting.Products)
+            .Sum(product => product.Quantity);
 
         return new OzonAnalyticsResult(
             productRows,
@@ -245,6 +248,7 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             postings.Count(posting => posting.Status == "awaiting_deliver"),
             postings.Count(posting => posting.Status == "delivering"),
             postings.Count(posting => posting.Status == "delivered"),
+            cancelledUnitsTotal,
             await GetAccountBalanceAsync(dateFrom, dateTo, cancellationToken),
             DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
     }
@@ -1080,6 +1084,7 @@ public record OzonAnalyticsResult(
     int AwaitingDeliverCount,
     int DeliveringCount,
     int DeliveredCount,
+    decimal CancelledUnitsTotal,
     OzonAccountBalance AccountBalance,
     string Timestamp);
 

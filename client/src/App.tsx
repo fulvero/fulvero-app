@@ -134,6 +134,7 @@ type OzonAnalytics = {
   awaitingDeliverCount: number
   deliveringCount: number
   deliveredCount: number
+  cancelledUnitsTotal: number
   accountBalance: {
     amount: number
     currencyCode: string
@@ -368,6 +369,7 @@ function App() {
   const [productTypeDraft, setProductTypeDraft] = useState<ProductType>('Production')
   const [productsSubTab, setProductsSubTab] = useState<ProductsSubTab>('settings')
   const [analyticsSubTab, setAnalyticsSubTab] = useState<AnalyticsSubTab>('summary')
+  const [productEditorSearch, setProductEditorSearch] = useState('')
   const [productionSearch, setProductionSearch] = useState('')
   const [productionSubTab, setProductionSubTab] = useState<ProductionSubTab>('products')
   const [selectedProductionProductId, setSelectedProductionProductId] = useState<number | null>(null)
@@ -441,6 +443,25 @@ function App() {
   const unsetProducts = ozonProducts.filter((item) => !item.productType)
   const productionProducts = ozonProducts.filter((item) => item.productType === 'Production')
   const purchaseProducts = ozonProducts.filter((item) => item.productType === 'Purchase')
+  const normalizedProductEditorSearch = productEditorSearch.trim().toLowerCase()
+  const editorProducts = normalizedProductEditorSearch
+    ? ozonProducts.filter((item) =>
+        [
+          item.productId,
+          item.offerId,
+          item.sku,
+          item.name,
+          item.price,
+          item.oldPrice,
+          item.minPrice,
+          item.status,
+          item.productUrl,
+          formatProductType(item.productType),
+        ]
+          .filter((value) => value !== undefined && value !== null)
+          .some((value) => String(value).toLowerCase().includes(normalizedProductEditorSearch)),
+      )
+    : ozonProducts
   const filteredProductionProducts = normalizedProductionSearch
     ? productionProducts.filter((item) =>
         [
@@ -466,7 +487,7 @@ function App() {
         ? productionProducts
         : productsSubTab === 'purchase'
           ? purchaseProducts
-          : ozonProducts
+          : editorProducts
   const normalizedTaskSearch = taskSearch.trim().toLowerCase()
   const filteredProductionTasks = normalizedTaskSearch
     ? productionTasks.filter((task) => matchesProductionTask(task, normalizedTaskSearch))
@@ -2976,7 +2997,7 @@ function App() {
                   <button type="button" onClick={() => setActiveTab('production')}>Открыть производство</button>
                 </article>
 
-                <article className="dashboard-card">
+                <article className="dashboard-card dashboard-card-with-new">
                   <div className="dashboard-card-head">
                     <span><strong>Поставки</strong><small>Заказы и приемка</small></span>
                   </div>
@@ -2986,11 +3007,31 @@ function App() {
                     <span><b>{activeSupplies.filter((item) => item.status === 'Accepted').length}</b><small>принято</small></span>
                   </div>
                   <button type="button" onClick={() => setActiveTab('supplies')}>Открыть поставки</button>
+                  <div className="dashboard-inline-new">
+                    <div className="dashboard-card-head">
+                      <span><strong>Новое</strong><small>Товары без типа</small></span>
+                    </div>
+                    <div className="new-products-list compact-new-products">
+                      {unsetProducts.slice(0, 4).map((item) => (
+                        <span key={item.productId}><b>{item.offerId}</b><small>{item.name}</small></span>
+                      ))}
+                      {unsetProducts.length === 0 && <small>Все товары распределены.</small>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('products')
+                        setProductsSubTab('settings')
+                      }}
+                    >
+                      Настроить товары
+                    </button>
+                  </div>
                 </article>
 
                 <article className="dashboard-card dashboard-card-wide">
                   <div className="dashboard-card-head">
-                    <span><strong>График продаж</strong><small>Последние 30 дней</small></span>
+                    <span><strong>График продаж</strong><small>Реальные заказы Ozon за последние 30 дней</small></span>
                     <button type="button" className="compact-button" onClick={loadAnalytics}>Обновить</button>
                   </div>
                   <div className="chart-summary">
@@ -2999,13 +3040,14 @@ function App() {
                     <span><b>{analytics?.deliveringCount ?? 0}</b><small>заказов в пути</small></span>
                     <span><b>{analytics?.awaitingPackagingCount ?? 0}</b><small>собираются</small></span>
                     <span><b>{analytics?.awaitingDeliverCount ?? 0}</b><small>готово к отгрузке</small></span>
+                    <span><b>{analytics ? formatPlainNumber(analytics.cancelledUnitsTotal ?? 0) : '-'}</b><small>отменено, шт.</small></span>
                     <span><b>{analytics ? formatPlainNumber(analytics.accountBalance?.amount ?? 0) : '-'}</b><small>на счету сейчас</small></span>
                   </div>
                   <div className="sales-chart-meta">
                     <span><i /> Продажи по дням, шт.</span>
-                    <small>Наведи на столбец, чтобы увидеть дату, количество и выручку</small>
+                    <small>Столбцы считают заказы Ozon, даже если товар еще не забрали или он в пути</small>
                   </div>
-                  <div className="sales-chart" aria-label="График продаж за 30 дней">
+                  <div className="sales-chart" aria-label="График реальных продаж за 30 дней">
                     {dashboardSalesDays.map((day, index) => (
                       <span className="sales-chart-day" key={day.date}>
                         <i
@@ -3015,38 +3057,12 @@ function App() {
                             opacity: day.quantity > 0 ? 1 : 0.28,
                           }}
                         />
-                        {day.quantity > 0 && (
-                          <b style={{ bottom: `${Math.max(8, Math.round((day.quantity / maxDashboardSales) * 100))}%` }}>
-                            {formatPlainNumber(day.quantity)}
-                          </b>
-                        )}
                         {(index === 0 || index === dashboardSalesDays.length - 1 || index % 7 === 0) && (
                           <small>{formatDateShort(day.date)}</small>
                         )}
                       </span>
                     ))}
                   </div>
-                </article>
-
-                <article className="dashboard-card">
-                  <div className="dashboard-card-head">
-                    <span><strong>Новое</strong><small>Товары без типа</small></span>
-                  </div>
-                  <div className="new-products-list">
-                    {unsetProducts.slice(0, 5).map((item) => (
-                      <span key={item.productId}><b>{item.offerId}</b><small>{item.name}</small></span>
-                    ))}
-                    {unsetProducts.length === 0 && <small>Все товары распределены.</small>}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('products')
-                      setProductsSubTab('settings')
-                    }}
-                  >
-                    Настроить товары
-                  </button>
                 </article>
               </div>
             </section>
@@ -3440,6 +3456,23 @@ function App() {
                       Загружено: {ozonProducts.length}
                     </span>
                   )}
+                </div>
+              )}
+
+              {productsSubTab === 'editor' && (
+                <div className="product-editor-toolbar">
+                  <label>
+                    <span>Поиск по товарам</span>
+                    <input
+                      type="search"
+                      value={productEditorSearch}
+                      onChange={(event) => setProductEditorSearch(event.target.value)}
+                      placeholder="Название, артикул, ID, тип товара"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </label>
+                  <strong>Найдено: {productsBySubTab.length}</strong>
                 </div>
               )}
 
