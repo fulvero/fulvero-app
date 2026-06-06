@@ -228,13 +228,26 @@ p, li { color: rgba(236, 244, 255, 0.72); line-height: 1.55; }
 .notice { border: 1px solid rgba(56,167,255,.28); border-radius: 8px; padding: 12px; color: #d9ebff; background: rgba(0,123,255,.12); font-weight: 800; }
 .backup-visual { display: grid; place-items: center; height: 160px; border-radius: 16px; color: #dcecff; background: linear-gradient(145deg, #1e6fff, #102bc9); font-size: 50px; font-weight: 900; box-shadow: 0 24px 80px rgba(37,99,235,.34); }
 
+.pricing-subtitle { max-width: 720px; margin: -6px auto 24px; text-align: center; }
 .pricing-layout { grid-template-columns: minmax(0, 1fr) 420px; align-items: stretch; }
-.price-card { text-align: center; }
-.price-card strong { display: block; color: #fff; font-size: 46px; }
+.price-card { display: grid; gap: 22px; }
+.price-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 1px solid rgba(117,150,210,.16); }
+.price-top span { display: block; color: #fff; font-size: 24px; font-weight: 900; }
+.price-card strong { display: block; color: #fff; font-size: 46px; white-space: nowrap; }
 .price-card em { color: rgba(236,244,255,.62); font-size: 18px; font-style: normal; }
-.price-card ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 18px 0 0; padding: 0; text-align: left; list-style: none; }
+.price-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.price-facts span { border: 1px solid rgba(56,167,255,.22); border-radius: 8px; padding: 14px; background: rgba(0,123,255,.08); }
+.price-facts b { display: block; color: #38a7ff; font-size: 22px; }
+.price-facts small { color: rgba(236,244,255,.72); font-weight: 800; }
+.price-card ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; margin: 0; padding: 0; text-align: left; list-style: none; }
 .price-card li::before { content: "✓"; margin-right: 8px; color: #38a7ff; }
-.trial-card { display: grid; align-content: center; gap: 12px; }
+.trial-card { display: grid; align-content: center; gap: 16px; }
+.trial-badge { width: max-content; border: 1px solid rgba(56,167,255,.28); border-radius: 999px; padding: 7px 11px; color: #38a7ff; background: rgba(0,123,255,.1); font-weight: 900; }
+.trial-steps { display: grid; gap: 10px; }
+.trial-steps span { display: flex; align-items: center; gap: 10px; color: rgba(236,244,255,.82); font-weight: 800; }
+.trial-steps b { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; border-radius: 999px; color: #fff; background: #2563eb; }
+.pricing-note { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.pricing-note span { border: 1px solid rgba(117,150,210,.16); border-radius: 8px; padding: 14px; color: rgba(236,244,255,.8); background: rgba(14,28,55,.66); font-weight: 800; text-align: center; }
 
 .faq-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .faq summary { cursor: pointer; color: #fff; font-weight: 900; }
@@ -274,6 +287,8 @@ p, li { color: rgba(236, 244, 255, 0.72); line-height: 1.55; }
   .mock-page-title { align-items: flex-start; flex-direction: column; }
   .metric-row.three, .metric-row.four, .metric-row.seven { grid-template-columns: 1fr; }
   .sales-chart { height: 140px; gap: 5px; padding: 12px; }
+  .price-top { align-items: flex-start; flex-direction: column; }
+  .price-facts, .pricing-note { grid-template-columns: 1fr; }
   .quick-grid, .feature-grid, .three-columns, .flow-line, .faq-grid, .price-card ul, .mini-grid, .mini-grid.three { grid-template-columns: 1fr; }
   .mock-card.attention, .mock-card.chart { grid-column: auto; }
   .app-top { overflow-x: auto; }
