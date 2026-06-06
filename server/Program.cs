@@ -2539,7 +2539,6 @@ app.MapPost("/api/billing/checkout", async (
         },
         capture = true,
         description = $"Подписка Fulvero на 1 месяц: {company.Name}",
-        save_payment_method = true,
         metadata = new
         {
             companyId = company.Id.ToString()
@@ -2563,6 +2562,10 @@ app.MapPost("/api/billing/checkout", async (
     var confirmationUrl = payment.GetProperty("confirmation").GetProperty("confirmation_url").GetString() ?? string.Empty;
 
     company.LastYooKassaPaymentId = paymentId;
+    if (!string.IsNullOrWhiteSpace(paymentId))
+    {
+        db.BillingPayments.Add(BillingPayments.FromYooKassaPayment(company.Id, payment, value));
+    }
     await db.SaveChangesAsync();
 
     return Results.Ok(new BillingCheckoutResponse(confirmationUrl, paymentId));
@@ -2601,7 +2604,6 @@ app.MapPost("/api/billing/create-payment", async (
         confirmation = new { type = "redirect", return_url = returnUrl },
         capture = true,
         description = $"Подписка Fulvero на 1 месяц: {company.Name}",
-        save_payment_method = true,
         metadata = new { companyId = company.Id.ToString() }
     };
 
@@ -2622,6 +2624,10 @@ app.MapPost("/api/billing/create-payment", async (
     var confirmationUrl = payment.GetProperty("confirmation").GetProperty("confirmation_url").GetString() ?? string.Empty;
 
     company.LastYooKassaPaymentId = paymentId;
+    if (!string.IsNullOrWhiteSpace(paymentId))
+    {
+        db.BillingPayments.Add(BillingPayments.FromYooKassaPayment(company.Id, payment, value));
+    }
     await db.SaveChangesAsync();
 
     return Results.Ok(new BillingCheckoutResponse(confirmationUrl, paymentId));
@@ -2643,7 +2649,6 @@ app.MapGet("/api/billing/status", async (AppDbContext db, ClaimsPrincipal princi
 app.MapPost("/api/billing/yookassa/webhook", async (
     HttpRequest request,
     AppDbContext db,
-    IDataProtectionProvider dataProtectionProvider,
     CancellationToken cancellationToken) =>
 {
     var body = await new StreamReader(request.Body).ReadToEndAsync(cancellationToken);
@@ -2668,18 +2673,7 @@ app.MapPost("/api/billing/yookassa/webhook", async (
         return Results.Ok();
     }
 
-    company.SubscriptionStatus = CompanySubscriptionStatuses.Active;
-    company.SubscriptionPaidUntil = DateTimeOffset.UtcNow.AddMonths(1);
-    company.LastYooKassaPaymentId = payment.GetProperty("id").GetString() ?? company.LastYooKassaPaymentId;
-
-    if (payment.TryGetProperty("payment_method", out var paymentMethod)
-        && paymentMethod.TryGetProperty("saved", out var saved)
-        && saved.ValueKind == JsonValueKind.True
-        && paymentMethod.TryGetProperty("id", out var paymentMethodId))
-    {
-        var protector = dataProtectionProvider.CreateProtector("Fulvero.YooKassaPaymentMethod.v1");
-        company.YooKassaPaymentMethodIdProtected = protector.Protect(paymentMethodId.GetString() ?? string.Empty);
-    }
+    await BillingPayments.ApplySucceededYooKassaPaymentAsync(db, company, payment, cancellationToken);
 
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok();
@@ -2688,7 +2682,6 @@ app.MapPost("/api/billing/yookassa/webhook", async (
 app.MapPost("/api/billing/webhook/yookassa", async (
     HttpRequest request,
     AppDbContext db,
-    IDataProtectionProvider dataProtectionProvider,
     CancellationToken cancellationToken) =>
 {
     var body = await new StreamReader(request.Body).ReadToEndAsync(cancellationToken);
@@ -2713,18 +2706,7 @@ app.MapPost("/api/billing/webhook/yookassa", async (
         return Results.Ok();
     }
 
-    company.SubscriptionStatus = CompanySubscriptionStatuses.Active;
-    company.SubscriptionPaidUntil = DateTimeOffset.UtcNow.AddMonths(1);
-    company.LastYooKassaPaymentId = payment.GetProperty("id").GetString() ?? company.LastYooKassaPaymentId;
-
-    if (payment.TryGetProperty("payment_method", out var paymentMethod)
-        && paymentMethod.TryGetProperty("saved", out var saved)
-        && saved.ValueKind == JsonValueKind.True
-        && paymentMethod.TryGetProperty("id", out var paymentMethodId))
-    {
-        var protector = dataProtectionProvider.CreateProtector("Fulvero.YooKassaPaymentMethod.v1");
-        company.YooKassaPaymentMethodIdProtected = protector.Protect(paymentMethodId.GetString() ?? string.Empty);
-    }
+    await BillingPayments.ApplySucceededYooKassaPaymentAsync(db, company, payment, cancellationToken);
 
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok();
@@ -3214,6 +3196,117 @@ static class BillingPublicText
         var scheme = request.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? request.Scheme;
         var host = request.Headers["X-Forwarded-Host"].FirstOrDefault() ?? request.Host.Value;
         return $"{scheme}://{host}";
+    }
+}
+
+static class BillingPayments
+{
+    public static BillingPayment FromYooKassaPayment(Guid companyId, JsonElement payment, YooKassaOptions options) =>
+        new()
+        {
+            CompanyId = companyId,
+            Provider = "YooKassa",
+            PaymentId = GetString(payment, "id"),
+            Status = GetString(payment, "status", "pending"),
+            Amount = GetAmount(payment, options.MonthlyAmount),
+            Currency = GetCurrency(payment, options.Currency),
+            CreatedAt = GetDateTimeOffset(payment, "created_at") ?? DateTimeOffset.UtcNow
+        };
+
+    public static async Task ApplySucceededYooKassaPaymentAsync(
+        AppDbContext db,
+        Company company,
+        JsonElement payment,
+        CancellationToken cancellationToken)
+    {
+        var paymentId = GetString(payment, "id");
+        if (string.IsNullOrWhiteSpace(paymentId))
+        {
+            return;
+        }
+
+        var existing = await db.BillingPayments.FirstOrDefaultAsync(
+            item => item.PaymentId == paymentId,
+            cancellationToken);
+        var wasAlreadySucceeded = existing?.Status == "succeeded";
+        var paidAt = GetDateTimeOffset(payment, "captured_at") ?? DateTimeOffset.UtcNow;
+
+        if (existing is null)
+        {
+            existing = new BillingPayment
+            {
+                CompanyId = company.Id,
+                Provider = "YooKassa",
+                PaymentId = paymentId,
+                CreatedAt = GetDateTimeOffset(payment, "created_at") ?? DateTimeOffset.UtcNow
+            };
+            db.BillingPayments.Add(existing);
+        }
+
+        existing.Status = "succeeded";
+        existing.Amount = GetAmount(payment, existing.Amount);
+        existing.Currency = GetCurrency(payment, existing.Currency);
+        existing.PaidAt = paidAt;
+
+        company.LastYooKassaPaymentId = paymentId;
+        if (!wasAlreadySucceeded)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var startsAt = company.SubscriptionPaidUntil is not null && company.SubscriptionPaidUntil > now
+                ? company.SubscriptionPaidUntil.Value
+                : now;
+
+            company.SubscriptionStatus = CompanySubscriptionStatuses.Active;
+            company.SubscriptionPaidUntil = startsAt.AddDays(30);
+        }
+    }
+
+    private static string GetString(JsonElement value, string propertyName, string fallback = "") =>
+        value.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString() ?? fallback
+            : fallback;
+
+    private static decimal GetAmount(JsonElement payment, decimal fallback)
+    {
+        if (!payment.TryGetProperty("amount", out var amount)
+            || !amount.TryGetProperty("value", out var value)
+            || value.ValueKind != JsonValueKind.String)
+        {
+            return fallback;
+        }
+
+        return decimal.TryParse(
+            value.GetString(),
+            NumberStyles.Number,
+            CultureInfo.InvariantCulture,
+            out var parsed)
+            ? parsed
+            : fallback;
+    }
+
+    private static string GetCurrency(JsonElement payment, string fallback)
+    {
+        if (!payment.TryGetProperty("amount", out var amount)
+            || !amount.TryGetProperty("currency", out var currency)
+            || currency.ValueKind != JsonValueKind.String)
+        {
+            return fallback;
+        }
+
+        return currency.GetString() ?? fallback;
+    }
+
+    private static DateTimeOffset? GetDateTimeOffset(JsonElement payment, string propertyName)
+    {
+        if (!payment.TryGetProperty(propertyName, out var property)
+            || property.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return DateTimeOffset.TryParse(property.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed
+            : null;
     }
 }
 

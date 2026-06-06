@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<SupplyItem> SupplyItems => Set<SupplyItem>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<BillingPayment> BillingPayments => Set<BillingPayment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -27,7 +28,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(company => company.OzonClientIdProtected).HasMaxLength(2000);
             entity.Property(company => company.OzonApiKeyProtected).HasMaxLength(4000);
             entity.Property(company => company.SubscriptionStatus).HasMaxLength(32);
-            entity.Property(company => company.YooKassaPaymentMethodIdProtected).HasMaxLength(4000);
             entity.Property(company => company.LastYooKassaPaymentId).HasMaxLength(120);
         });
 
@@ -47,6 +47,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasOne(user => user.Company)
                 .WithMany()
                 .HasForeignKey(user => user.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BillingPayment>(entity =>
+        {
+            entity.HasIndex(payment => payment.PaymentId).IsUnique();
+            entity.HasIndex(payment => payment.CompanyId);
+            entity.Property(payment => payment.Provider).HasMaxLength(32);
+            entity.Property(payment => payment.PaymentId).HasMaxLength(120);
+            entity.Property(payment => payment.Status).HasMaxLength(32);
+            entity.Property(payment => payment.Currency).HasMaxLength(8);
+            entity.HasOne(payment => payment.Company)
+                .WithMany()
+                .HasForeignKey(payment => payment.CompanyId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
