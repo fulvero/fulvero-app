@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -337,6 +338,95 @@ app.MapPost("/api/auth/login", async (
     return Results.Ok(new AuthResponse(
         tokenService.CreateToken(user),
         UserResponses.Current(user)));
+});
+
+app.MapPost("/api/auth/password-reset/request", async (
+    PasswordResetRequest request,
+    HttpRequest currentRequest,
+    AppDbContext db,
+    EmailSender emailSender,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(request.CompanyName) || string.IsNullOrWhiteSpace(request.UserName))
+    {
+        return Results.BadRequest("Укажите компанию и логин или email администратора.");
+    }
+
+    var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
+    var loginValue = request.UserName.Trim();
+    var normalizedEmail = NormalizeEmail(loginValue);
+    var admin = await db.Users
+        .Include(user => user.Company)
+        .SingleOrDefaultAsync(user => user.Role == UserRoles.Admin
+            && user.IsActive
+            && (user.UserName == loginValue || (normalizedEmail != null && user.Email == normalizedEmail))
+            && user.Company.LoginName == companyLoginName,
+            cancellationToken);
+
+    if (admin is not null && !string.IsNullOrWhiteSpace(admin.Email))
+    {
+        var now = DateTimeOffset.UtcNow;
+        var oldTokens = await db.PasswordResetTokens
+            .Where(token => token.UserId == admin.Id && token.UsedAt == null && token.ExpiresAt > now)
+            .ToListAsync(cancellationToken);
+        foreach (var oldToken in oldTokens)
+        {
+            oldToken.UsedAt = now;
+        }
+
+        var rawToken = CreatePasswordResetToken();
+        db.PasswordResetTokens.Add(new PasswordResetToken
+        {
+            UserId = admin.Id,
+            TokenHash = HashPasswordResetToken(rawToken),
+            CreatedAt = now,
+            ExpiresAt = now.AddHours(1)
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        var resetUrl = $"{BillingPublicText.GetRequestOrigin(currentRequest)}/?resetToken={Uri.EscapeDataString(rawToken)}";
+        await SendPasswordResetEmailAsync(emailSender, admin, resetUrl, now.AddHours(1), cancellationToken);
+    }
+
+    return Results.Ok(new PasswordResetResponse("Если администратор найден, письмо со ссылкой для сброса пароля отправлено."));
+});
+
+app.MapPost("/api/auth/password-reset/confirm", async (
+    PasswordResetConfirmRequest request,
+    AppDbContext db,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Token) || string.IsNullOrWhiteSpace(request.Password))
+    {
+        return Results.BadRequest("Токен и новый пароль обязательны.");
+    }
+
+    if (request.Password.Length < 6)
+    {
+        return Results.BadRequest("Пароль должен быть не короче 6 символов.");
+    }
+
+    var tokenHash = HashPasswordResetToken(request.Token);
+    var resetToken = await db.PasswordResetTokens
+        .Include(token => token.User)
+        .ThenInclude(user => user.Company)
+        .SingleOrDefaultAsync(token => token.TokenHash == tokenHash, cancellationToken);
+
+    if (resetToken is null
+        || resetToken.UsedAt is not null
+        || resetToken.ExpiresAt <= DateTimeOffset.UtcNow
+        || !resetToken.User.IsActive
+        || resetToken.User.Role != UserRoles.Admin)
+    {
+        return Results.BadRequest("Ссылка для сброса пароля недействительна или устарела.");
+    }
+
+    resetToken.User.PasswordHash = PasswordHasher.Hash(request.Password);
+    resetToken.User.LastSeenAt = null;
+    resetToken.UsedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(cancellationToken);
+
+    return Results.Ok(new PasswordResetResponse("Пароль администратора обновлен. Теперь можно войти с новым паролем."));
 });
 
 app.MapPost("/api/auth/heartbeat", async (AppDbContext db, ClaimsPrincipal principal) =>
@@ -2817,16 +2907,60 @@ static async Task SendPaymentSuccessEmailAsync(
     }
 }
 
+static Task SendPasswordResetEmailAsync(
+    EmailSender emailSender,
+    AppUser admin,
+    string resetUrl,
+    DateTimeOffset expiresAt,
+    CancellationToken cancellationToken) =>
+    emailSender.SendAsync(
+        admin.Email,
+        "Сброс пароля Fulvero",
+        $"""
+        <h1 style="margin:0 0 12px;font-size:22px;">Сброс пароля администратора</h1>
+        <p style="font-size:15px;line-height:1.55;">Получен запрос на смену пароля для администратора компании <strong>{Html(admin.Company.Name)}</strong>.</p>
+        <div style="margin:18px 0;padding:16px;border:1px solid #d8e1ef;border-radius:12px;background:#f8fbff;">
+          <p style="margin:0 0 6px;font-size:15px;line-height:1.5;"><strong>Компания:</strong> {Html(admin.Company.Name)}</p>
+          <p style="margin:0 0 6px;font-size:15px;line-height:1.5;"><strong>Логин:</strong> {Html(admin.UserName)}</p>
+          <p style="margin:0;font-size:15px;line-height:1.5;"><strong>Ссылка действует до:</strong> {FormatMailDateTime(expiresAt)}</p>
+        </div>
+        <p style="font-size:15px;line-height:1.55;">Если это были вы, нажмите кнопку и задайте новый пароль.</p>
+        <p style="margin:22px 0;">
+          <a href="{Html(resetUrl)}" style="display:inline-block;border-radius:10px;padding:13px 18px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;">Сбросить пароль</a>
+        </p>
+        <p style="font-size:13px;line-height:1.5;color:#64748b;">Если вы не запрашивали сброс, просто проигнорируйте это письмо.</p>
+        """,
+        cancellationToken);
+
 static string Html(string value) => System.Net.WebUtility.HtmlEncode(value);
 
 static string FormatMailDate(DateTimeOffset? value) =>
     value is null ? "дата уточняется" : value.Value.ToLocalTime().ToString("dd.MM.yyyy");
+
+static string FormatMailDateTime(DateTimeOffset value) =>
+    value.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
+
+static string CreatePasswordResetToken()
+{
+    Span<byte> bytes = stackalloc byte[32];
+    RandomNumberGenerator.Fill(bytes);
+    return Convert.ToBase64String(bytes)
+        .Replace('+', '-')
+        .Replace('/', '_')
+        .TrimEnd('=');
+}
+
+static string HashPasswordResetToken(string value) =>
+    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
 app.Run();
 
 record Product(int Id, string Name, string Status, decimal Price);
 record RegisterCompanyRequest(string CompanyName, string UserName, string Email, string DisplayName, string Password);
 record LoginRequest(string CompanyName, string UserName, string Password);
+record PasswordResetRequest(string CompanyName, string UserName);
+record PasswordResetConfirmRequest(string Token, string Password);
+record PasswordResetResponse(string Message);
 record AuthResponse(string Token, CurrentUserResponse User);
 record CurrentUserResponse(
     Guid Id,

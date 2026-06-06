@@ -17,6 +17,7 @@ WORKDIR /app
 COPY --from=server-build /app/publish ./
 COPY --from=client-build /src/client/dist ./wwwroot
 COPY landing/assets/fulvero-logo.png ./wwwroot/email-logo.png
+COPY landing/assets/email-banner.jpg ./wwwroot/email-banner.jpg
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Fulvero.Api.dll"]

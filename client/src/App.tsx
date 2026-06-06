@@ -346,10 +346,16 @@ function App() {
   const [ozonApiKey, setOzonApiKey] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   const [isLoading, setIsLoading] = useState(true)
-  const [authMode, setAuthMode] = useState<'login' | 'register'>(() =>
-    window.location.pathname.toLowerCase().includes('register') ? 'register' : 'login',
-  )
+  const [passwordResetToken, setPasswordResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetToken') ?? '')
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(() => {
+    if (new URLSearchParams(window.location.search).has('resetToken')) {
+      return 'reset'
+    }
+
+    return window.location.pathname.toLowerCase().includes('register') ? 'register' : 'login'
+  })
   const [loginError, setLoginError] = useState('')
+  const [passwordResetStatus, setPasswordResetStatus] = useState('')
   const [billingStatus, setBillingStatus] = useState('')
   const [ozonStatus, setOzonStatus] = useState('')
   const [ozonProducts, setOzonProducts] = useState<OzonProduct[]>([])
@@ -868,6 +874,68 @@ function App() {
     localStorage.setItem('authUser', JSON.stringify(data.user))
     setToken(data.token)
     setUser(data.user)
+  }
+
+  async function handlePasswordResetRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLoginError('')
+    setPasswordResetStatus('')
+
+    const formData = new FormData(event.currentTarget)
+    const response = await fetch('/api/auth/password-reset/request', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        companyName: formData.get('companyName'),
+        userName: formData.get('userName'),
+      }),
+    })
+
+    if (!response.ok) {
+      setLoginError(getApiErrorMessage(await response.text(), 'Не удалось отправить письмо для сброса пароля'))
+      return
+    }
+
+    const data: { message: string } = await response.json()
+    setPasswordResetStatus(data.message)
+  }
+
+  async function handlePasswordResetConfirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLoginError('')
+    setPasswordResetStatus('')
+
+    const formData = new FormData(event.currentTarget)
+    const password = String(formData.get('password') ?? '')
+    const passwordRepeat = String(formData.get('passwordRepeat') ?? '')
+    if (password !== passwordRepeat) {
+      setLoginError('Пароли не совпадают')
+      return
+    }
+
+    const response = await fetch('/api/auth/password-reset/confirm', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        token: passwordResetToken,
+        password,
+      }),
+    })
+
+    if (!response.ok) {
+      setLoginError(getApiErrorMessage(await response.text(), 'Не удалось обновить пароль'))
+      return
+    }
+
+    const data: { message: string } = await response.json()
+    setPasswordResetStatus(data.message)
+    setPasswordResetToken('')
+    window.history.replaceState(null, '', window.location.pathname)
+    setAuthMode('login')
   }
 
   async function startSubscriptionCheckout() {
@@ -2608,57 +2676,140 @@ function App() {
   }
 
   if (!token) {
+    const authTitle =
+      authMode === 'register'
+        ? 'Регистрация компании'
+        : authMode === 'forgot'
+          ? 'Сброс пароля'
+          : authMode === 'reset'
+            ? 'Новый пароль'
+            : 'Вход в панель'
+    const authSubmit =
+      authMode === 'register'
+        ? handleRegister
+        : authMode === 'forgot'
+          ? handlePasswordResetRequest
+          : authMode === 'reset'
+            ? handlePasswordResetConfirm
+            : handleLogin
+
     return (
       <main className="login-page">
-        <form className="login-form" onSubmit={authMode === 'login' ? handleLogin : handleRegister}>
+        <form className="login-form" onSubmit={authSubmit}>
           <img className="login-logo" src={fulveroLogo} alt="Fulvero" />
-          <h1>{authMode === 'login' ? 'Вход в панель' : 'Регистрация компании'}</h1>
-          <div className="auth-switch">
-            <button
-              type="button"
-              className={authMode === 'login' ? 'active' : ''}
-              onClick={() => setAuthMode('login')}
-            >
-              Вход
-            </button>
-            <button
-              type="button"
-              className={authMode === 'register' ? 'active' : ''}
-              onClick={() => setAuthMode('register')}
-            >
-              Регистрация
-            </button>
-          </div>
-          <label>
-            Компания
-            <input name="companyName" autoComplete="organization" required />
-          </label>
-          {authMode === 'register' && (
-            <label>
-              Имя первого сотрудника
-              <input name="displayName" autoComplete="name" required />
-            </label>
+          <h1>{authTitle}</h1>
+          {authMode !== 'reset' && (
+            <div className="auth-switch">
+              <button
+                type="button"
+                className={authMode === 'login' ? 'active' : ''}
+                onClick={() => {
+                  setAuthMode('login')
+                  setLoginError('')
+                  setPasswordResetStatus('')
+                }}
+              >
+                Вход
+              </button>
+              <button
+                type="button"
+                className={authMode === 'register' ? 'active' : ''}
+                onClick={() => {
+                  setAuthMode('register')
+                  setLoginError('')
+                  setPasswordResetStatus('')
+                }}
+              >
+                Регистрация
+              </button>
+            </div>
           )}
-          {authMode === 'register' && (
-            <label>
-              Email
-              <input name="email" type="email" autoComplete="email" required />
-            </label>
+          {authMode === 'reset' ? (
+            <>
+              <p className="trial-note">Задайте новый пароль администратора. Ссылка из письма одноразовая.</p>
+              <label>
+                Новый пароль
+                <input name="password" type="password" autoComplete="new-password" required minLength={6} />
+              </label>
+              <label>
+                Повторите пароль
+                <input name="passwordRepeat" type="password" autoComplete="new-password" required minLength={6} />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                Компания
+                <input name="companyName" autoComplete="organization" required />
+              </label>
+              {authMode === 'register' && (
+                <label>
+                  Имя первого сотрудника
+                  <input name="displayName" autoComplete="name" required />
+                </label>
+              )}
+              {authMode === 'register' && (
+                <label>
+                  Email
+                  <input name="email" type="email" autoComplete="email" required />
+                </label>
+              )}
+              <label>
+                {authMode === 'login' || authMode === 'forgot' ? 'Логин или Email администратора' : 'Логин'}
+                <input name="userName" autoComplete="username" required />
+              </label>
+              {authMode !== 'forgot' && (
+                <label>
+                  Пароль
+                  <input name="password" type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} required />
+                </label>
+              )}
+            </>
           )}
-          <label>
-            {authMode === 'login' ? 'Логин или Email' : 'Логин'}
-            <input name="userName" autoComplete="username" required />
-          </label>
-          <label>
-            Пароль
-            <input name="password" type="password" autoComplete="current-password" required />
-          </label>
           {loginError && <p className="error">{loginError}</p>}
+          {passwordResetStatus && <p className="success">{passwordResetStatus}</p>}
           <button type="submit">
-            {authMode === 'login' ? 'Войти' : 'Создать компанию и админа'}
+            {authMode === 'register'
+              ? 'Создать компанию и админа'
+              : authMode === 'forgot'
+                ? 'Отправить ссылку'
+                : authMode === 'reset'
+                  ? 'Сохранить новый пароль'
+                  : 'Войти'}
           </button>
+          {authMode === 'login' && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => {
+                setAuthMode('forgot')
+                setLoginError('')
+                setPasswordResetStatus('')
+              }}
+            >
+              Сбросить пароль
+            </button>
+          )}
+          {(authMode === 'forgot' || authMode === 'reset') && (
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => {
+                setAuthMode('login')
+                setLoginError('')
+                setPasswordResetStatus('')
+                setPasswordResetToken('')
+                window.history.replaceState(null, '', window.location.pathname)
+              }}
+            >
+              Вернуться ко входу
+            </button>
+          )}
           {authMode === 'register' && (
             <p className="trial-note">Демо-доступ включится на 3 дня. Первый сотрудник сразу станет администратором.</p>
+          )}
+          {authMode === 'forgot' && (
+            <p className="trial-note">Сброс доступен только администраторам компании. Сотрудникам пароль меняет админ.</p>
           )}
         </form>
       </main>

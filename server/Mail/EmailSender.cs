@@ -168,10 +168,10 @@ public class EmailSender(
         if (logoBytes is not null)
         {
             builder.AppendLine($"--{boundary}");
-            builder.AppendLine("Content-Type: image/png; name=\"fulvero-logo.png\"");
+            builder.AppendLine("Content-Type: image/jpeg; name=\"fulvero-banner.jpg\"");
             builder.AppendLine("Content-Transfer-Encoding: base64");
             builder.AppendLine("Content-ID: <fulvero-logo>");
-            builder.AppendLine("Content-Disposition: inline; filename=\"fulvero-logo.png\"");
+            builder.AppendLine("Content-Disposition: inline; filename=\"fulvero-banner.jpg\"");
             builder.AppendLine();
             foreach (var line in SplitBase64(Convert.ToBase64String(logoBytes)))
             {
@@ -190,7 +190,9 @@ public class EmailSender(
         {
             value.LogoFilePath,
             Path.Combine(environment.ContentRootPath, value.LogoFilePath),
+            Path.Combine(environment.ContentRootPath, "wwwroot", "email-banner.jpg"),
             Path.Combine(environment.ContentRootPath, "wwwroot", "email-logo.png"),
+            Path.Combine(environment.ContentRootPath, "..", "landing", "assets", "email-banner.jpg"),
             Path.Combine(environment.ContentRootPath, "..", "landing", "assets", "fulvero-logo.png")
         };
 
@@ -270,7 +272,7 @@ public class EmailSender(
     private static string WrapHtml(string content, bool hasInlineLogo)
     {
         var logo = hasInlineLogo
-            ? """<img src="cid:fulvero-logo" alt="Fulvero" width="180" style="display:block;width:180px;max-width:100%;height:auto;margin:0 0 22px;">"""
+            ? """<img src="cid:fulvero-logo" alt="Fulvero" width="572" style="display:block;width:100%;max-width:572px;height:auto;margin:0 0 22px;border-radius:12px;">"""
             : """<div style="margin:0 0 22px;font-size:22px;font-weight:700;letter-spacing:.06em;color:#2563eb;">FULVERO</div>""";
 
         return

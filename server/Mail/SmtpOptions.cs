@@ -11,6 +11,6 @@ public class SmtpOptions
     public string FromEmail { get; set; } = string.Empty;
     public string FromName { get; set; } = "Fulvero";
     public string ReplyToEmail { get; set; } = string.Empty;
-    public string LogoFilePath { get; set; } = "wwwroot/email-logo.png";
+    public string LogoFilePath { get; set; } = "wwwroot/email-banner.jpg";
     public string LogoUrl { get; set; } = "https://fulvero.ru/assets/fulvero-logo.png";
 }
