@@ -26,6 +26,7 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.AddFilter("System.Net.Http.HttpClient.Fulvero.Api.Telegram.TelegramBotClient", LogLevel.Warning);
+builder.Logging.AddFilter("System.Net.Http.HttpClient.TelegramBotClient", LogLevel.Warning);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 
 namespace Fulvero.Api.Telegram;
@@ -133,9 +134,31 @@ public class TelegramBotClient(HttpClient httpClient, IOptionsMonitor<TelegramOp
 
 public record TelegramUpdatesResponse(bool Ok, IReadOnlyList<TelegramUpdate> Result);
 public record TelegramWebhookInfoResponse(bool Ok, TelegramWebhookInfo Result);
-public record TelegramWebhookInfo(string Url, int PendingUpdateCount, string? LastErrorMessage);
+public record TelegramWebhookInfo(
+    string Url,
+    [property: JsonPropertyName("pending_update_count")] int PendingUpdateCount,
+    [property: JsonPropertyName("last_error_message")] string? LastErrorMessage);
 public record TelegramBoolResponse(bool Ok, bool Result, string? Description);
-public record TelegramUpdate(long UpdateId, TelegramMessage? Message, TelegramMessage? EditedMessage, TelegramMessage? ChannelPost);
-public record TelegramMessage(long MessageId, TelegramChat Chat, TelegramUser? From, string? Text);
-public record TelegramChat(long Id, string Type, string? Title, string? Username, string? FirstName, string? LastName);
-public record TelegramUser(long Id, bool IsBot, string? FirstName, string? LastName, string? Username);
+public record TelegramUpdate(
+    [property: JsonPropertyName("update_id")] long UpdateId,
+    TelegramMessage? Message,
+    [property: JsonPropertyName("edited_message")] TelegramMessage? EditedMessage,
+    [property: JsonPropertyName("channel_post")] TelegramMessage? ChannelPost);
+public record TelegramMessage(
+    [property: JsonPropertyName("message_id")] long MessageId,
+    TelegramChat Chat,
+    TelegramUser? From,
+    string? Text);
+public record TelegramChat(
+    long Id,
+    string Type,
+    string? Title,
+    string? Username,
+    [property: JsonPropertyName("first_name")] string? FirstName,
+    [property: JsonPropertyName("last_name")] string? LastName);
+public record TelegramUser(
+    long Id,
+    [property: JsonPropertyName("is_bot")] bool IsBot,
+    [property: JsonPropertyName("first_name")] string? FirstName,
+    [property: JsonPropertyName("last_name")] string? LastName,
+    string? Username);
