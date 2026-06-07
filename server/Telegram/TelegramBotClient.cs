@@ -62,11 +62,80 @@ public class TelegramBotClient(HttpClient httpClient, IOptionsMonitor<TelegramOp
             return null;
         }
 
-        return JsonSerializer.Deserialize<TelegramUpdatesResponse>(body, JsonOptions);
+        var result = JsonSerializer.Deserialize<TelegramUpdatesResponse>(body, JsonOptions);
+        if (result?.Ok == false)
+        {
+            logger.LogWarning("Telegram getUpdates API returned ok=false: {Body}", body);
+        }
+
+        return result;
+    }
+
+    public async Task<TelegramWebhookInfoResponse?> GetWebhookInfoAsync(CancellationToken cancellationToken)
+    {
+        if (!IsConfigured)
+        {
+            return null;
+        }
+
+        var token = options.CurrentValue.BotToken;
+        using var response = await httpClient.GetAsync($"https://api.telegram.org/bot{token}/getWebhookInfo", cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning(
+                "Telegram getWebhookInfo failed for bot token {Token}: {Status} {Body}",
+                MaskToken(token),
+                response.StatusCode,
+                body);
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<TelegramWebhookInfoResponse>(body, JsonOptions);
+    }
+
+    public async Task<bool> DeleteWebhookAsync(CancellationToken cancellationToken)
+    {
+        if (!IsConfigured)
+        {
+            return false;
+        }
+
+        var token = options.CurrentValue.BotToken;
+        using var response = await httpClient.GetAsync(
+            $"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=false",
+            cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning(
+                "Telegram deleteWebhook failed for bot token {Token}: {Status} {Body}",
+                MaskToken(token),
+                response.StatusCode,
+                body);
+            return false;
+        }
+
+        var result = JsonSerializer.Deserialize<TelegramBoolResponse>(body, JsonOptions);
+        return result?.Ok == true && result.Result;
+    }
+
+    private static string MaskToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return "<empty>";
+        }
+
+        return token.Length <= 8 ? "***" : $"{token[..4]}...{token[^4..]}";
     }
 }
 
 public record TelegramUpdatesResponse(bool Ok, IReadOnlyList<TelegramUpdate> Result);
-public record TelegramUpdate(long UpdateId, TelegramMessage? Message);
-public record TelegramMessage(long MessageId, TelegramChat Chat, string Text);
+public record TelegramWebhookInfoResponse(bool Ok, TelegramWebhookInfo Result);
+public record TelegramWebhookInfo(string Url, int PendingUpdateCount, string? LastErrorMessage);
+public record TelegramBoolResponse(bool Ok, bool Result, string? Description);
+public record TelegramUpdate(long UpdateId, TelegramMessage? Message, TelegramMessage? EditedMessage, TelegramMessage? ChannelPost);
+public record TelegramMessage(long MessageId, TelegramChat Chat, TelegramUser? From, string? Text);
 public record TelegramChat(long Id, string Type, string? Title, string? Username, string? FirstName, string? LastName);
+public record TelegramUser(long Id, bool IsBot, string? FirstName, string? LastName, string? Username);
