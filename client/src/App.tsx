@@ -4997,35 +4997,54 @@ function App() {
               {platformStatus && <p className="status-line">{platformStatus}</p>}
 
               {platformSubTab === 'dashboard' && (
-                <div className="dashboard-grid platform-dashboard-grid">
-                  <article className="metric-card">
-                    <strong>{platformDashboard?.totalCompanies ?? 0}</strong>
-                    <span>всего компаний</span>
+                <div className="platform-dashboard">
+                  <article className="platform-hero-card">
+                    <div>
+                      <p>Сводка платформы</p>
+                      <h3>Fulvero управляет {platformDashboard?.totalCompanies ?? 0} компаниями</h3>
+                      <span>Следите за подписками, подключениями и пользователями из одного кабинета владельца.</span>
+                    </div>
+                    <button type="button" onClick={loadPlatformData}>
+                      Обновить данные
+                    </button>
                   </article>
-                  <article className="metric-card">
-                    <strong>{platformDashboard?.trialCompanies ?? 0}</strong>
-                    <span>на триале</span>
-                  </article>
-                  <article className="metric-card">
-                    <strong>{platformDashboard?.activeSubscriptions ?? 0}</strong>
-                    <span>активных подписок</span>
-                  </article>
-                  <article className="metric-card">
-                    <strong>{platformDashboard?.pastDueSubscriptions ?? 0}</strong>
-                    <span>просроченных</span>
-                  </article>
-                  <article className="metric-card">
-                    <strong>{platformDashboard?.totalUsers ?? 0}</strong>
-                    <span>пользователей</span>
-                  </article>
-                  <article className="metric-card">
-                    <strong>{platformDashboard?.ozonConnections ?? 0}</strong>
-                    <span>Ozon подключений</span>
-                  </article>
-                  <article className="metric-card">
-                    <strong>{platformDashboard?.telegramConnections ?? 0}</strong>
-                    <span>Telegram подключений</span>
-                  </article>
+                  <div className="platform-metrics">
+                    <article className="platform-metric accent-blue">
+                      <span>Компании</span>
+                      <strong>{platformDashboard?.totalCompanies ?? 0}</strong>
+                      <small>всего в системе</small>
+                    </article>
+                    <article className="platform-metric accent-cyan">
+                      <span>Триал</span>
+                      <strong>{platformDashboard?.trialCompanies ?? 0}</strong>
+                      <small>компаний тестируют</small>
+                    </article>
+                    <article className="platform-metric accent-green">
+                      <span>Подписки</span>
+                      <strong>{platformDashboard?.activeSubscriptions ?? 0}</strong>
+                      <small>активных оплат</small>
+                    </article>
+                    <article className="platform-metric accent-red">
+                      <span>Просрочки</span>
+                      <strong>{platformDashboard?.pastDueSubscriptions ?? 0}</strong>
+                      <small>требуют внимания</small>
+                    </article>
+                    <article className="platform-metric accent-violet">
+                      <span>Пользователи</span>
+                      <strong>{platformDashboard?.totalUsers ?? 0}</strong>
+                      <small>во всех компаниях</small>
+                    </article>
+                    <article className="platform-metric accent-indigo">
+                      <span>Ozon</span>
+                      <strong>{platformDashboard?.ozonConnections ?? 0}</strong>
+                      <small>подключенных кабинетов</small>
+                    </article>
+                    <article className="platform-metric accent-sky">
+                      <span>Telegram</span>
+                      <strong>{platformDashboard?.telegramConnections ?? 0}</strong>
+                      <small>уведомления подключены</small>
+                    </article>
+                  </div>
                 </div>
               )}
 
@@ -5049,14 +5068,14 @@ function App() {
                         <tr key={company.id}>
                           <td>
                             <strong>{company.name}</strong>
-                            {company.isSystemCompany && <small>Системная</small>}
+                            {company.isSystemCompany && <small className="platform-muted">Системная компания</small>}
                           </td>
                           <td>{formatDateTime(company.createdAt)}</td>
-                          <td>{company.subscriptionStatus}</td>
+                          <td><span className={`platform-status status-${company.subscriptionStatus.toLowerCase()}`}>{formatSubscriptionStatus(company.subscriptionStatus)}</span></td>
                           <td>{company.subscriptionPaidUntil ? formatDateTime(company.subscriptionPaidUntil) : '-'}</td>
                           <td>{company.userCount}</td>
-                          <td>{company.ozonConnected ? 'Да' : 'Нет'}</td>
-                          <td>{company.telegramConnected ? 'Да' : 'Нет'}</td>
+                          <td><span className={`platform-chip ${company.ozonConnected ? 'is-ok' : 'is-empty'}`}>{company.ozonConnected ? 'Подключен' : 'Нет'}</span></td>
+                          <td><span className={`platform-chip ${company.telegramConnected ? 'is-ok' : 'is-empty'}`}>{company.telegramConnected ? 'Подключен' : 'Нет'}</span></td>
                           <td>
                             <div className="platform-actions">
                               <button type="button" onClick={() => extendCompanyTrial(company)} disabled={company.isSystemCompany}>
@@ -6789,6 +6808,17 @@ function formatProductType(value: ProductType) {
   }
 
   return 'Не настроен'
+}
+
+function formatSubscriptionStatus(value: string) {
+  const statuses: Record<string, string> = {
+    Active: 'Активна',
+    Trial: 'Триал',
+    PastDue: 'Просрочена',
+    Blocked: 'Заблокирована',
+  }
+
+  return statuses[value] ?? value ?? '-'
 }
 
 function translateStatus(status: string) {

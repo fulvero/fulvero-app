@@ -4104,7 +4104,7 @@ static class FeatureAccess
 
     public static async Task<bool> HasAnyAsync(AppDbContext db, ClaimsPrincipal principal, params string[] features)
     {
-        if (principal.IsInRole(UserRoles.Admin))
+        if (principal.IsInRole(UserRoles.Admin) || principal.IsInRole(UserRoles.SuperAdmin))
         {
             return true;
         }
