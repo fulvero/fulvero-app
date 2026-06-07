@@ -279,6 +279,10 @@ public class TelegramUpdatePollingService(
                 chat.Id,
                 message.From?.Id,
                 message.From?.Username ?? "-");
+            await bot.SendMessageAsync(
+                chat.Id,
+                "Telegram успешно подключён к Fulvero ✅",
+                cancellationToken);
             return;
         }
 
