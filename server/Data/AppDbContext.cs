@@ -20,6 +20,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<TelegramIntegration> TelegramIntegrations => Set<TelegramIntegration>();
     public DbSet<TelegramNotificationState> TelegramNotificationStates => Set<TelegramNotificationState>();
+    public DbSet<TelegramBotState> TelegramBotStates => Set<TelegramBotState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -98,6 +99,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany()
                 .HasForeignKey(item => item.CompanyId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TelegramBotState>(entity =>
+        {
+            entity.Property(item => item.Id).HasMaxLength(80);
+            entity.HasKey(item => item.Id);
         });
 
         modelBuilder.Entity<ProductionFile>(entity =>

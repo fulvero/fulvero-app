@@ -1,4 +1,5 @@
 using Fulvero.Api.Data;
+using Fulvero.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -9,7 +10,7 @@ public class TelegramUpdatePollingService(
     IOptionsMonitor<TelegramOptions> options,
     ILogger<TelegramUpdatePollingService> logger) : BackgroundService
 {
-    private long offset;
+    private const string StateId = "default";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -37,7 +38,9 @@ public class TelegramUpdatePollingService(
             return;
         }
 
-        var updates = await bot.GetUpdatesAsync(offset, cancellationToken);
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var state = await GetStateAsync(db, cancellationToken);
+        var updates = await bot.GetUpdatesAsync(state.LastProcessedUpdateId + 1, cancellationToken);
         if (updates is null || !updates.Ok)
         {
             return;
@@ -45,21 +48,46 @@ public class TelegramUpdatePollingService(
 
         foreach (var update in updates.Result)
         {
-            offset = Math.Max(offset, update.UpdateId + 1);
-            var message = update.Message;
-            if (message is null || string.IsNullOrWhiteSpace(message.Text))
+            if (update.UpdateId <= state.LastProcessedUpdateId)
             {
                 continue;
             }
 
-            var parts = message.Text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 2 || !parts[0].Equals("/start", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                continue;
-            }
+                var message = update.Message;
+                if (message is not null && !string.IsNullOrWhiteSpace(message.Text))
+                {
+                    var parts = message.Text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2 && parts[0].Equals("/start", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await LinkChatAsync(scope, parts[1], message.Chat, cancellationToken);
+                    }
+                }
 
-            await LinkChatAsync(scope, parts[1], message.Chat, cancellationToken);
+                state.LastProcessedUpdateId = update.UpdateId;
+                state.UpdatedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Failed to process Telegram update {UpdateId}.", update.UpdateId);
+            }
         }
+    }
+
+    private static async Task<TelegramBotState> GetStateAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var state = await db.TelegramBotStates.FirstOrDefaultAsync(item => item.Id == StateId, cancellationToken);
+        if (state is not null)
+        {
+            return state;
+        }
+
+        state = new TelegramBotState { Id = StateId };
+        db.TelegramBotStates.Add(state);
+        await db.SaveChangesAsync(cancellationToken);
+        return state;
     }
 
     private static async Task LinkChatAsync(
@@ -76,6 +104,11 @@ public class TelegramUpdatePollingService(
         if (integration is null)
         {
             await bot.SendMessageAsync(chat.Id, "Код привязки Fulvero не найден или устарел.", cancellationToken);
+            return;
+        }
+
+        if (integration.ChatId == chat.Id && integration.LinkedAt is not null)
+        {
             return;
         }
 
