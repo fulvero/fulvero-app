@@ -33,6 +33,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(company => company.OzonApiKeyProtected).HasMaxLength(4000);
             entity.Property(company => company.SubscriptionStatus).HasMaxLength(32);
             entity.Property(company => company.LastYooKassaPaymentId).HasMaxLength(120);
+            entity.HasIndex(company => company.IsSystemCompany);
         });
 
         modelBuilder.Entity<AppUser>(entity =>

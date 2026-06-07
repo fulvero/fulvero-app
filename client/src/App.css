@@ -683,6 +683,76 @@
   background: #2563eb;
 }
 
+.impersonation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 14px 0;
+  padding: 12px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-weight: 800;
+}
+
+.impersonation-banner button {
+  width: auto;
+  min-height: 36px;
+  padding: 8px 14px;
+}
+
+.platform-dashboard-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.platform-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+}
+
+.platform-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.platform-table-wrap th,
+.platform-table-wrap td {
+  padding: 12px;
+  border-bottom: 1px solid #e6edf7;
+  text-align: left;
+  vertical-align: top;
+}
+
+.platform-table-wrap th {
+  background: #f6f8fb;
+  color: #516179;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.platform-table-wrap td strong,
+.platform-table-wrap td small {
+  display: block;
+}
+
+.platform-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 260px;
+}
+
+.platform-actions button {
+  width: auto;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
 .tab-badge {
   display: inline-grid;
   place-items: center;
@@ -3593,6 +3663,16 @@
 @media (max-width: 480px) {
   .app-content {
     padding: 8px;
+  }
+
+  .impersonation-banner {
+    align-items: stretch;
+    flex-direction: column;
+    margin: 8px;
+  }
+
+  .impersonation-banner button {
+    width: 100%;
   }
 
   .chat-panel {

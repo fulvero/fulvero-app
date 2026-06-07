@@ -10,6 +10,7 @@ public class Company
     public string SubscriptionStatus { get; set; } = CompanySubscriptionStatuses.Trial;
     public DateTimeOffset TrialEndsAt { get; set; } = DateTimeOffset.UtcNow.AddDays(3);
     public DateTimeOffset? SubscriptionPaidUntil { get; set; }
+    public bool IsSystemCompany { get; set; }
     public string LastYooKassaPaymentId { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

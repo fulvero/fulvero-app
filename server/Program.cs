@@ -109,6 +109,7 @@ if (app.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+    PlatformAccess.EnsureSystemCompanyAsync(db, CancellationToken.None).GetAwaiter().GetResult();
 }
 
 // Configure the HTTP request pipeline.
@@ -137,6 +138,12 @@ app.Use(async (context, next) =>
 {
     if (context.User.Identity?.IsAuthenticated != true
         || SubscriptionAccess.IsExemptPath(context.Request.Path))
+    {
+        await next();
+        return;
+    }
+
+    if (context.User.IsInRole(UserRoles.SuperAdmin))
     {
         await next();
         return;
@@ -472,7 +479,7 @@ app.MapPost("/api/auth/logout", async (AppDbContext db, ClaimsPrincipal principa
     return Results.NoContent();
 }).RequireAuthorization();
 
-app.MapGet("/api/auth/me", async (AppDbContext db, ClaimsPrincipal principal) =>
+app.MapGet("/api/auth/me", async (AppDbContext db, ClaimsPrincipal principal, CancellationToken cancellationToken) =>
 {
     var currentUserId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
     if (!Guid.TryParse(currentUserId, out var userId))
@@ -483,8 +490,13 @@ app.MapGet("/api/auth/me", async (AppDbContext db, ClaimsPrincipal principal) =>
     var user = await db.Users
         .AsNoTracking()
         .Include(item => item.Company)
-        .FirstOrDefaultAsync(item => item.Id == userId && item.IsActive);
-    return user is null ? Results.Unauthorized() : Results.Ok(UserResponses.Current(user));
+        .FirstOrDefaultAsync(item => item.Id == userId && item.IsActive, cancellationToken);
+    if (user is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    return Results.Ok(await UserResponses.CurrentAsync(db, user, principal, cancellationToken));
 }).RequireAuthorization();
 
 app.MapPut("/api/profile", async (
@@ -598,7 +610,7 @@ app.MapGet("/api/admin/users", async (AppDbContext db, ClaimsPrincipal principal
             user.LastSeenAt >= onlineAfter))
         .ToListAsync();
 })
-    .RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+    .RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPost("/api/admin/users", async (CreateUserRequest request, AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -642,7 +654,7 @@ app.MapPost("/api/admin/users", async (CreateUserRequest request, AppDbContext d
         user.CreatedAt,
         user.LastSeenAt,
         false));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPut("/api/admin/users/{id:guid}/settings", async (
     Guid id,
@@ -678,7 +690,7 @@ app.MapPut("/api/admin/users/{id:guid}/settings", async (
         user.CreatedAt,
         user.LastSeenAt,
         false));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPut("/api/admin/users/{id:guid}/password", async (
     Guid id,
@@ -703,7 +715,7 @@ app.MapPut("/api/admin/users/{id:guid}/password", async (
     await db.SaveChangesAsync();
 
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapDelete("/api/admin/users/{id:guid}", async (Guid id, AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -725,7 +737,7 @@ app.MapDelete("/api/admin/users/{id:guid}", async (Guid id, AppDbContext db, Cla
     await db.SaveChangesAsync();
 
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/admin/audit-logs", async (
     string? search,
@@ -772,7 +784,7 @@ app.MapGet("/api/admin/audit-logs", async (
             log.Details,
             log.CreatedAt))
         .ToListAsync();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/admin/audit-logs/export", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -803,7 +815,7 @@ app.MapGet("/api/admin/audit-logs/export", async (AppDbContext db, ClaimsPrincip
         Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(builder.ToString())).ToArray(),
         "text/csv; charset=utf-8",
         $"audit-log-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv");
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/admin/system-health", async (AppDbContext db) =>
 {
@@ -816,7 +828,7 @@ app.MapGet("/api/admin/system-health", async (AppDbContext db) =>
         (DateTimeOffset.UtcNow - process.StartTime.ToUniversalTime()).ToString(),
         Environment.MachineName,
         Environment.Version.ToString()));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/admin/backups", (IWebHostEnvironment environment) =>
 {
@@ -841,7 +853,7 @@ app.MapGet("/api/admin/backups", (IWebHostEnvironment environment) =>
         .ToList();
 
     return Results.Ok(files);
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/admin/backups/{fileName}", (string fileName, IWebHostEnvironment environment) =>
 {
@@ -860,7 +872,240 @@ app.MapGet("/api/admin/backups/{fileName}", (string fileName, IWebHostEnvironmen
     }
 
     return Results.File(fullPath, "application/gzip", fileName);
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
+
+app.MapGet("/api/platform/dashboard", async (AppDbContext db, CancellationToken cancellationToken) =>
+{
+    var now = DateTimeOffset.UtcNow;
+    var companies = await db.Companies.AsNoTracking().ToListAsync(cancellationToken);
+    var companyIds = companies.Select(company => company.Id).ToList();
+    var telegramCompanyIds = await db.TelegramIntegrations
+        .AsNoTracking()
+        .Where(item => item.ChatId != null)
+        .Select(item => item.CompanyId)
+        .Distinct()
+        .ToListAsync(cancellationToken);
+
+    return Results.Ok(new PlatformDashboardResponse(
+        companies.Count,
+        companies.Count(company => !company.IsSystemCompany && company.SubscriptionStatus == CompanySubscriptionStatuses.Trial && company.TrialEndsAt > now),
+        companies.Count(company => !company.IsSystemCompany && SubscriptionAccess.IsActive(company) && company.SubscriptionStatus == CompanySubscriptionStatuses.Active),
+        companies.Count(company => !company.IsSystemCompany && !SubscriptionAccess.IsActive(company)),
+        await db.Users.AsNoTracking().CountAsync(cancellationToken),
+        companies.Count(company => companyIds.Contains(company.Id)
+            && (!string.IsNullOrWhiteSpace(company.OzonClientIdProtected) || !string.IsNullOrWhiteSpace(company.OzonApiKeyProtected))),
+        telegramCompanyIds.Count));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
+
+app.MapGet("/api/platform/companies", async (AppDbContext db, CancellationToken cancellationToken) =>
+{
+    var userCounts = await db.Users
+        .AsNoTracking()
+        .GroupBy(user => user.CompanyId)
+        .Select(group => new { CompanyId = group.Key, Count = group.Count() })
+        .ToDictionaryAsync(item => item.CompanyId, item => item.Count, cancellationToken);
+    var telegramCompanyIds = await db.TelegramIntegrations
+        .AsNoTracking()
+        .Where(item => item.ChatId != null)
+        .Select(item => item.CompanyId)
+        .ToHashSetAsync(cancellationToken);
+
+    var companies = await db.Companies
+        .AsNoTracking()
+        .OrderByDescending(company => company.CreatedAt)
+        .ToListAsync(cancellationToken);
+
+    return companies
+        .Select(company => new PlatformCompanyListItem(
+            company.Id,
+            company.Name,
+            company.CreatedAt,
+            company.SubscriptionStatus,
+            company.SubscriptionPaidUntil,
+            userCounts.GetValueOrDefault(company.Id),
+            !string.IsNullOrWhiteSpace(company.OzonClientIdProtected) || !string.IsNullOrWhiteSpace(company.OzonApiKeyProtected),
+            telegramCompanyIds.Contains(company.Id),
+            company.IsSystemCompany))
+        .ToList();
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
+
+app.MapGet("/api/platform/users", async (AppDbContext db, CancellationToken cancellationToken) =>
+{
+    return await db.Users
+        .AsNoTracking()
+        .Include(user => user.Company)
+        .OrderByDescending(user => user.CreatedAt)
+        .Select(user => new PlatformUserListItem(
+            user.Id,
+            user.Company.Name,
+            user.UserName,
+            user.Email,
+            user.Role,
+            user.CreatedAt))
+        .ToListAsync(cancellationToken);
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
+
+app.MapPost("/api/platform/companies/{id:guid}/extend-trial", async (
+    Guid id,
+    PlatformExtendTrialRequest request,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    CancellationToken cancellationToken) =>
+{
+    var company = await db.Companies.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+    if (company is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (company.IsSystemCompany)
+    {
+        return Results.BadRequest("Системную компанию Fulvero нельзя перевести на триал.");
+    }
+
+    var days = Math.Clamp(request.Days <= 0 ? 3 : request.Days, 1, 365);
+    company.SubscriptionStatus = CompanySubscriptionStatuses.Trial;
+    company.TrialEndsAt = DateTimeOffset.UtcNow.AddDays(days);
+    company.SubscriptionPaidUntil = null;
+    await AuditLogWriter.AddForSystemCompanyAsync(db, principal, "Продление триала", "Company", company.Id.ToString(), $"{company.Name}: {days} дн.", cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new PlatformActionResponse("Триал продлен."));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
+
+app.MapPut("/api/platform/companies/{id:guid}/subscription", async (
+    Guid id,
+    PlatformSubscriptionRequest request,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    CancellationToken cancellationToken) =>
+{
+    var company = await db.Companies.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+    if (company is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (company.IsSystemCompany)
+    {
+        company.SubscriptionStatus = CompanySubscriptionStatuses.Active;
+        company.SubscriptionPaidUntil = null;
+    }
+    else
+    {
+        var allowedStatuses = new[] { CompanySubscriptionStatuses.Trial, CompanySubscriptionStatuses.Active, CompanySubscriptionStatuses.PastDue, CompanySubscriptionStatuses.Blocked };
+        company.SubscriptionStatus = allowedStatuses.Contains(request.Status) ? request.Status : CompanySubscriptionStatuses.PastDue;
+        company.SubscriptionPaidUntil = request.SubscriptionPaidUntil;
+        if (company.SubscriptionStatus == CompanySubscriptionStatuses.Trial && request.TrialEndsAt is not null)
+        {
+            company.TrialEndsAt = request.TrialEndsAt.Value;
+        }
+    }
+
+    await AuditLogWriter.AddForSystemCompanyAsync(db, principal, "Изменение подписки", "Company", company.Id.ToString(), $"{company.Name}: {company.SubscriptionStatus}", cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new PlatformActionResponse("Подписка изменена."));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
+
+app.MapPost("/api/platform/companies/{id:guid}/block", async (
+    Guid id,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    CancellationToken cancellationToken) =>
+{
+    var company = await db.Companies.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+    if (company is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (company.IsSystemCompany)
+    {
+        return Results.BadRequest("Системную компанию Fulvero нельзя заблокировать.");
+    }
+
+    company.SubscriptionStatus = CompanySubscriptionStatuses.Blocked;
+    await AuditLogWriter.AddForSystemCompanyAsync(db, principal, "Блокировка компании", "Company", company.Id.ToString(), company.Name, cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new PlatformActionResponse("Компания заблокирована."));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
+
+app.MapPost("/api/platform/companies/{id:guid}/unblock", async (
+    Guid id,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    CancellationToken cancellationToken) =>
+{
+    var company = await db.Companies.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+    if (company is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!company.IsSystemCompany && company.SubscriptionStatus == CompanySubscriptionStatuses.Blocked)
+    {
+        company.SubscriptionStatus = company.SubscriptionPaidUntil is not null && company.SubscriptionPaidUntil > DateTimeOffset.UtcNow
+            ? CompanySubscriptionStatuses.Active
+            : CompanySubscriptionStatuses.PastDue;
+    }
+
+    await AuditLogWriter.AddForSystemCompanyAsync(db, principal, "Разблокировка компании", "Company", company.Id.ToString(), company.Name, cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new PlatformActionResponse("Компания разблокирована."));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
+
+app.MapPost("/api/platform/companies/{id:guid}/impersonate", async (
+    Guid id,
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    JwtTokenService tokenService,
+    CancellationToken cancellationToken) =>
+{
+    var currentUserId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!Guid.TryParse(currentUserId, out var userId))
+    {
+        return Results.Unauthorized();
+    }
+
+    var user = await db.Users.Include(item => item.Company).FirstOrDefaultAsync(item => item.Id == userId && item.IsActive, cancellationToken);
+    var targetCompany = await db.Companies.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+    if (user is null || targetCompany is null)
+    {
+        return Results.NotFound();
+    }
+
+    await AuditLogWriter.AddForSystemCompanyAsync(db, principal, "Вход как компания", "Company", targetCompany.Id.ToString(), targetCompany.Name, cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+
+    return Results.Ok(new AuthResponse(
+        tokenService.CreateToken(user, targetCompany.Id, targetCompany.Name, user.CompanyId, user.Company.Name),
+        UserResponses.Current(user, targetCompany, true, user.CompanyId, user.Company.Name, targetCompany.Id, targetCompany.Name)));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
+
+app.MapPost("/api/platform/return", async (
+    AppDbContext db,
+    ClaimsPrincipal principal,
+    JwtTokenService tokenService,
+    CancellationToken cancellationToken) =>
+{
+    var currentUserId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!Guid.TryParse(currentUserId, out var userId))
+    {
+        return Results.Unauthorized();
+    }
+
+    var user = await db.Users.Include(item => item.Company).FirstOrDefaultAsync(item => item.Id == userId && item.IsActive, cancellationToken);
+    if (user is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    await AuditLogWriter.AddForSystemCompanyAsync(db, principal, "Возврат в Fulvero", "Company", user.CompanyId.ToString(), user.Company.Name, cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+
+    return Results.Ok(new AuthResponse(
+        tokenService.CreateToken(user),
+        UserResponses.Current(user)));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.SuperAdmin));
 
 app.MapGet("/api/integrations/ozon", async (
     OzonApiClient ozonApi,
@@ -912,7 +1157,7 @@ app.MapGet("/api/integrations/ozon", async (
             AppPublicText.MaskSecret(credentials.ApiKey),
             DateTimeOffset.UtcNow));
     }
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPut("/api/integrations/ozon", async (
     UpdateOzonIntegrationRequest request,
@@ -964,7 +1209,7 @@ app.MapPut("/api/integrations/ozon", async (
         AppPublicText.MaskSecret(normalizedClientId),
         AppPublicText.MaskSecret(normalizedApiKey),
         DateTimeOffset.UtcNow));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/integrations/telegram", async (
     AppDbContext db,
@@ -975,7 +1220,7 @@ app.MapGet("/api/integrations/telegram", async (
     var companyId = CompanyAccess.GetCompanyId(principal);
     var integration = await TelegramIntegrationAccess.EnsureAsync(db, companyId, cancellationToken);
     return Results.Ok(TelegramIntegrationAccess.ToResponse(integration, bot));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPost("/api/integrations/telegram/regenerate", async (
     AppDbContext db,
@@ -991,7 +1236,7 @@ app.MapPost("/api/integrations/telegram/regenerate", async (
     integration.LinkedAt = null;
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(TelegramIntegrationAccess.ToResponse(integration, bot));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPost("/api/integrations/telegram/test", async (
     AppDbContext db,
@@ -1011,7 +1256,7 @@ app.MapPost("/api/integrations/telegram/test", async (
         "✅ Fulvero подключен к Telegram\n\nУведомления будут приходить сюда.",
         cancellationToken);
     return Results.Ok(new TelegramTestResponse("Тестовое уведомление отправлено."));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapDelete("/api/integrations/telegram", async (
     AppDbContext db,
@@ -1030,7 +1275,7 @@ app.MapDelete("/api/integrations/telegram", async (
     integration.LinkedAt = null;
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/chat/users", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -1422,7 +1667,7 @@ app.MapPut("/api/product-settings/{ozonProductId:long}/type", async (
     await db.SaveChangesAsync();
 
     return Results.Ok(new ProductSettingResponse(setting.OzonProductId, setting.OfferId, setting.ProductName, setting.ProductType));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/product-supplier-links", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -1577,7 +1822,7 @@ app.MapPut("/api/ozon/prices", async (
     {
         return Results.Problem(exception.Message);
     }
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/ozon/analytics", async (
     OzonApiClient ozonApi,
@@ -1724,7 +1969,7 @@ app.MapDelete("/api/production/files/{id:guid}", async (Guid id, AppDbContext db
     await db.SaveChangesAsync();
 
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/production/tasks", async (string? status, AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -1829,7 +2074,7 @@ app.MapGet("/api/production/tasks/archive/export", async (AppDbContext db, Claim
         Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(builder.ToString())).ToArray(),
         "text/csv; charset=utf-8",
         $"production-task-archive-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv");
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPost("/api/production/tasks", async (
     CreateProductionTaskRequest request,
@@ -1905,7 +2150,7 @@ app.MapPost("/api/production/tasks", async (
     await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.Created($"/api/production/tasks/{task.Id}", result);
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPut("/api/production/tasks/{id:guid}/start", async (
     Guid id,
@@ -2053,7 +2298,7 @@ app.MapPut("/api/production/tasks/{id:guid}/archive", async (
     await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapDelete("/api/production/tasks/{id:guid}", async (
     Guid id,
@@ -2079,7 +2324,7 @@ app.MapDelete("/api/production/tasks/{id:guid}", async (
     await hub.Clients.Group(AppHub.CompanyGroup(companyId)).SendAsync("ProductionTasksChanged");
 
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/supplies", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -2223,7 +2468,7 @@ app.MapGet("/api/supplies/import-template", () =>
         content,
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "supply-template.xlsx");
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPost("/api/supplies/import", async (
     HttpRequest request,
@@ -2294,7 +2539,7 @@ app.MapPost("/api/supplies/import", async (
     await db.SaveChangesAsync(cancellationToken);
 
     return Results.Ok(new { supply.Id, Items = supply.Items.Count });
-}).DisableAntiforgery().RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).DisableAntiforgery().RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPut("/api/supplies/{id:guid}/status", async (
     Guid id,
@@ -2518,7 +2763,7 @@ app.MapPut("/api/supplies/{id:guid}/archive", async (Guid id, AppDbContext db, C
     await db.SaveChangesAsync();
 
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapDelete("/api/supplies/{id:guid}", async (Guid id, AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -2539,7 +2784,7 @@ app.MapDelete("/api/supplies/{id:guid}", async (Guid id, AppDbContext db, Claims
     await db.SaveChangesAsync();
 
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPut("/api/supplies/items/{id:guid}/replace-reserve", async (
     Guid id,
@@ -2581,7 +2826,7 @@ app.MapPut("/api/supplies/items/{id:guid}/replace-reserve", async (
     await db.SaveChangesAsync();
 
     return Results.NoContent();
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/supplies/analytics", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -2679,7 +2924,7 @@ app.MapGet("/api/supplies/analytics/export", async (AppDbContext db, ClaimsPrinc
         Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(builder.ToString())).ToArray(),
         "text/csv; charset=utf-8",
         $"supplies-analytics-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv");
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPost("/api/billing/checkout", async (
     HttpRequest currentRequest,
@@ -2748,7 +2993,7 @@ app.MapPost("/api/billing/checkout", async (
     await db.SaveChangesAsync();
 
     return Results.Ok(new BillingCheckoutResponse(confirmationUrl, paymentId));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapPost("/api/billing/create-payment", async (
     HttpRequest currentRequest,
@@ -2810,7 +3055,7 @@ app.MapPost("/api/billing/create-payment", async (
     await db.SaveChangesAsync();
 
     return Results.Ok(new BillingCheckoutResponse(confirmationUrl, paymentId));
-}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin, UserRoles.SuperAdmin));
 
 app.MapGet("/api/billing/status", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
@@ -3049,7 +3294,13 @@ record CurrentUserResponse(
     string SubscriptionStatus,
     DateTimeOffset TrialEndsAt,
     DateTimeOffset? SubscriptionPaidUntil,
-    bool HasActiveSubscription);
+    bool HasActiveSubscription,
+    bool IsSystemCompany,
+    bool IsImpersonating,
+    Guid? HomeCompanyId,
+    string HomeCompanyName,
+    Guid? ImpersonatedCompanyId,
+    string ImpersonatedCompanyName);
 record CreateUserRequest(string UserName, string DisplayName, string Position, string Password, string Role, List<string>? AllowedFeatures);
 record UpdateUserSettingsRequest(string DisplayName, string Position, string Role, List<string>? AllowedFeatures);
 record UpdateProfileRequest(string DisplayName);
@@ -3185,6 +3436,28 @@ record SystemHealthResponse(
     string MachineName,
     string DotnetVersion);
 record BackupFileResponse(string FileName, long SizeBytes, DateTimeOffset CreatedAt);
+record PlatformDashboardResponse(
+    int TotalCompanies,
+    int TrialCompanies,
+    int ActiveSubscriptions,
+    int PastDueSubscriptions,
+    int TotalUsers,
+    int OzonConnections,
+    int TelegramConnections);
+record PlatformCompanyListItem(
+    Guid Id,
+    string Name,
+    DateTimeOffset CreatedAt,
+    string SubscriptionStatus,
+    DateTimeOffset? SubscriptionPaidUntil,
+    int UserCount,
+    bool OzonConnected,
+    bool TelegramConnected,
+    bool IsSystemCompany);
+record PlatformUserListItem(Guid Id, string CompanyName, string UserName, string Email, string Role, DateTimeOffset CreatedAt);
+record PlatformExtendTrialRequest(int Days);
+record PlatformSubscriptionRequest(string Status, DateTimeOffset? TrialEndsAt, DateTimeOffset? SubscriptionPaidUntil);
+record PlatformActionResponse(string Message);
 record BillingCheckoutResponse(string ConfirmationUrl, string PaymentId);
 record BillingPaymentApplyResult(bool SubscriptionExtended, DateTimeOffset? PaidUntil);
 record BillingStatusResponse(
@@ -3364,6 +3637,73 @@ static class AuditLogWriter
             Details = details,
         });
     }
+
+    public static async Task AddForSystemCompanyAsync(
+        AppDbContext db,
+        ClaimsPrincipal principal,
+        string action,
+        string entityType,
+        string entityId,
+        string details,
+        CancellationToken cancellationToken)
+    {
+        var systemCompany = await PlatformAccess.EnsureSystemCompanyAsync(db, cancellationToken);
+        Guid? userId = null;
+        if (Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var parsedUserId))
+        {
+            userId = parsedUserId;
+        }
+
+        db.AuditLogs.Add(new AuditLog
+        {
+            CompanyId = systemCompany.Id,
+            UserId = userId,
+            UserName = principal.FindFirstValue(ClaimTypes.Name) ?? string.Empty,
+            DisplayName = principal.FindFirstValue("display_name") ?? string.Empty,
+            Action = action,
+            EntityType = entityType,
+            EntityId = entityId,
+            Details = details,
+        });
+    }
+}
+
+static class PlatformAccess
+{
+    public const string SystemCompanyName = "Fulvero";
+
+    public static async Task<Company> EnsureSystemCompanyAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var company = await db.Companies.FirstOrDefaultAsync(item => item.IsSystemCompany, cancellationToken);
+        if (company is not null)
+        {
+            return company;
+        }
+
+        company = await db.Companies.FirstOrDefaultAsync(item => item.LoginName == "fulvero", cancellationToken);
+        if (company is not null)
+        {
+            company.Name = SystemCompanyName;
+            company.IsSystemCompany = true;
+            company.SubscriptionStatus = CompanySubscriptionStatuses.Active;
+            company.SubscriptionPaidUntil = null;
+            await db.SaveChangesAsync(cancellationToken);
+            return company;
+        }
+
+        company = new Company
+        {
+            Name = SystemCompanyName,
+            LoginName = "fulvero",
+            IsSystemCompany = true,
+            SubscriptionStatus = CompanySubscriptionStatuses.Active,
+            SubscriptionPaidUntil = null,
+            TrialEndsAt = DateTimeOffset.UtcNow.AddYears(100)
+        };
+        db.Companies.Add(company);
+        await db.SaveChangesAsync(cancellationToken);
+        return company;
+    }
 }
 
 static class AppPublicText
@@ -3538,6 +3878,11 @@ static class SubscriptionAccess
 {
     public static bool IsActive(Company company)
     {
+        if (company.IsSystemCompany)
+        {
+            return true;
+        }
+
         var now = DateTimeOffset.UtcNow;
         if (company.SubscriptionStatus == CompanySubscriptionStatuses.Active
             && company.SubscriptionPaidUntil is not null
@@ -3789,10 +4134,45 @@ static class FeatureAccess
 static class UserResponses
 {
     public static CurrentUserResponse Current(AppUser user) =>
+        Current(user, user.Company, false, null, string.Empty, null, string.Empty);
+
+    public static async Task<CurrentUserResponse> CurrentAsync(
+        AppDbContext db,
+        AppUser user,
+        ClaimsPrincipal principal,
+        CancellationToken cancellationToken)
+    {
+        var effectiveCompany = user.Company;
+        var isImpersonating = principal.FindFirstValue("is_impersonating") == "true";
+        if (isImpersonating)
+        {
+            var companyId = CompanyAccess.GetCompanyId(principal);
+            effectiveCompany = await db.Companies.AsNoTracking().FirstOrDefaultAsync(item => item.Id == companyId, cancellationToken)
+                ?? user.Company;
+        }
+
+        return Current(
+            user,
+            effectiveCompany,
+            isImpersonating,
+            TryParseGuid(principal.FindFirstValue("home_company_id")),
+            principal.FindFirstValue("home_company_name") ?? string.Empty,
+            TryParseGuid(principal.FindFirstValue("impersonated_company_id")),
+            principal.FindFirstValue("impersonated_company_name") ?? effectiveCompany?.Name ?? string.Empty);
+    }
+
+    public static CurrentUserResponse Current(
+        AppUser user,
+        Company? effectiveCompany,
+        bool isImpersonating,
+        Guid? homeCompanyId,
+        string homeCompanyName,
+        Guid? impersonatedCompanyId,
+        string impersonatedCompanyName) =>
         new(
             user.Id,
-            user.CompanyId,
-            user.Company?.Name ?? string.Empty,
+            effectiveCompany?.Id ?? user.CompanyId,
+            effectiveCompany?.Name ?? user.Company?.Name ?? string.Empty,
             user.UserName,
             user.Email,
             user.DisplayName,
@@ -3800,18 +4180,27 @@ static class UserResponses
             user.Role,
             AvatarUrl(user),
             Features(user),
-            user.Company?.SubscriptionStatus ?? CompanySubscriptionStatuses.Trial,
-            user.Company?.TrialEndsAt ?? DateTimeOffset.UtcNow,
-            user.Company?.SubscriptionPaidUntil,
-            user.Company is not null && SubscriptionAccess.IsActive(user.Company));
+            effectiveCompany?.SubscriptionStatus ?? CompanySubscriptionStatuses.Trial,
+            effectiveCompany?.TrialEndsAt ?? DateTimeOffset.UtcNow,
+            effectiveCompany?.SubscriptionPaidUntil,
+            user.Role == UserRoles.SuperAdmin || (effectiveCompany is not null && SubscriptionAccess.IsActive(effectiveCompany)),
+            effectiveCompany?.IsSystemCompany ?? false,
+            isImpersonating,
+            homeCompanyId,
+            homeCompanyName,
+            impersonatedCompanyId,
+            impersonatedCompanyName);
 
     public static List<string> Features(AppUser user) =>
-        user.Role == UserRoles.Admin ? FeatureAccess.All.ToList() : FeatureAccess.Parse(user.AllowedFeatures);
+        user.Role is UserRoles.Admin or UserRoles.SuperAdmin ? FeatureAccess.All.ToList() : FeatureAccess.Parse(user.AllowedFeatures);
 
     public static string AvatarUrl(AppUser user) => AvatarUrl(user.AvatarFileName);
 
     public static string AvatarUrl(string avatarFileName) =>
         string.IsNullOrWhiteSpace(avatarFileName) ? string.Empty : $"/api/avatars/{Uri.EscapeDataString(avatarFileName)}";
+
+    private static Guid? TryParseGuid(string? value) =>
+        Guid.TryParse(value, out var result) ? result : null;
 }
 
 static class AppPaths

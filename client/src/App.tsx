@@ -19,6 +19,12 @@ type User = {
   trialEndsAt: string
   subscriptionPaidUntil?: string
   hasActiveSubscription: boolean
+  isSystemCompany: boolean
+  isImpersonating: boolean
+  homeCompanyId?: string
+  homeCompanyName: string
+  impersonatedCompanyId?: string
+  impersonatedCompanyName: string
   isOnline?: boolean
   lastSeenAt?: string
   unreadCount?: number
@@ -72,6 +78,37 @@ type TelegramIntegrationStatus = {
   startUrl: string
   chatTitle: string
   linkedAt?: string
+}
+
+type PlatformDashboard = {
+  totalCompanies: number
+  trialCompanies: number
+  activeSubscriptions: number
+  pastDueSubscriptions: number
+  totalUsers: number
+  ozonConnections: number
+  telegramConnections: number
+}
+
+type PlatformCompany = {
+  id: string
+  name: string
+  createdAt: string
+  subscriptionStatus: string
+  subscriptionPaidUntil?: string
+  userCount: number
+  ozonConnected: boolean
+  telegramConnected: boolean
+  isSystemCompany: boolean
+}
+
+type PlatformUser = {
+  id: string
+  companyName: string
+  userName: string
+  email: string
+  role: string
+  createdAt: string
 }
 
 type OzonProduct = {
@@ -290,6 +327,7 @@ const tabs = [
   { id: 'chats', label: 'Чаты' },
   { id: 'users', label: 'Пользователи', adminOnly: true },
   { id: 'settings', label: 'Настройки', adminOnly: true },
+  { id: 'platform', label: 'Администрирование', superAdminOnly: true },
 ] as const
 
 const featureGroups = [
@@ -337,6 +375,7 @@ type ProductionSubTab = 'products' | 'tasks' | 'inProgress' | 'deferred' | 'comp
 type SupplySubTab = 'create' | 'editor' | 'all' | 'archive' | 'analytics'
 type ProductsSubTab = 'settings' | 'production' | 'purchase' | 'editor'
 type AnalyticsSubTab = 'summary' | 'topProducts'
+type PlatformSubTab = 'dashboard' | 'companies' | 'users'
 
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem('authToken') ?? '')
@@ -389,6 +428,11 @@ function App() {
   const [productTypeDraft, setProductTypeDraft] = useState<ProductType>('Production')
   const [productsSubTab, setProductsSubTab] = useState<ProductsSubTab>('settings')
   const [analyticsSubTab, setAnalyticsSubTab] = useState<AnalyticsSubTab>('summary')
+  const [platformSubTab, setPlatformSubTab] = useState<PlatformSubTab>('dashboard')
+  const [platformDashboard, setPlatformDashboard] = useState<PlatformDashboard | null>(null)
+  const [platformCompanies, setPlatformCompanies] = useState<PlatformCompany[]>([])
+  const [platformUsers, setPlatformUsers] = useState<PlatformUser[]>([])
+  const [platformStatus, setPlatformStatus] = useState('')
   const [productEditorSearch, setProductEditorSearch] = useState('')
   const [productionSearch, setProductionSearch] = useState('')
   const [productionSubTab, setProductionSubTab] = useState<ProductionSubTab>('products')
@@ -607,16 +651,22 @@ function App() {
   ]
   const productionNotificationTotal = unseenNewProductionTasks.length
   const notificationTotal = unseenNewProductionTasks.length + unseenInProgressProductionTasks.length + chatUnreadTotal
+  const isSuperAdmin = user?.role === 'SuperAdmin'
+  const isAdminLike = user?.role === 'Admin' || isSuperAdmin
   const hasFeature = (feature: string) =>
-    user?.role === 'Admin' || Boolean(user?.allowedFeatures?.includes(feature))
+    isAdminLike || Boolean(user?.allowedFeatures?.includes(feature))
   const hasSubFeature = (feature: string, _fallback: string) => hasFeature(feature)
   const visibleTabs = tabs.filter((tab) => {
+    if ('superAdminOnly' in tab) {
+      return isSuperAdmin
+    }
+
     if (tab.id === 'dashboard') {
       return true
     }
 
     if ('adminOnly' in tab) {
-      return user?.role === 'Admin'
+      return isAdminLike
     }
 
     return hasFeature(tab.id)
@@ -652,7 +702,7 @@ function App() {
   }, [activeTab, user, visibleTabs])
 
   useEffect(() => {
-    if (user?.role === 'Admin') {
+    if (isAdminLike) {
       return
     }
 
@@ -686,10 +736,10 @@ function App() {
     if (activeTab === 'analytics' && !hasSubFeature(`analytics.${analyticsSubTab}`, 'analytics')) {
       setAnalyticsSubTab(analyticsFallbacks.find(([, feature]) => hasSubFeature(feature, 'analytics'))?.[0] ?? 'summary')
     }
-  }, [activeTab, user, productionSubTab, supplySubTab, analyticsSubTab])
+  }, [activeTab, user, isAdminLike, productionSubTab, supplySubTab, analyticsSubTab])
 
   useEffect(() => {
-    if (!token || user?.role !== 'Admin') {
+    if (!token || !isAdminLike) {
       return
     }
 
@@ -704,7 +754,7 @@ function App() {
       loadSystemHealth()
     }, 30000)
     return () => window.clearInterval(intervalId)
-  }, [token, user?.role])
+  }, [token, isAdminLike])
 
   useEffect(() => {
     setProfileForm({
@@ -807,6 +857,14 @@ function App() {
 
     loadOzonStocks()
   }, [token, activeTab])
+
+  useEffect(() => {
+    if (!token || activeTab !== 'platform' || !isSuperAdmin) {
+      return
+    }
+
+    loadPlatformData()
+  }, [token, activeTab, platformSubTab, isSuperAdmin])
 
   useEffect(() => {
     if (!token) {
@@ -1119,6 +1177,130 @@ function App() {
 
     const data: SystemHealth = await response.json()
     setSystemHealth(data)
+  }
+
+  async function loadPlatformData() {
+    setPlatformStatus('Загружаем данные платформы...')
+    const headers = {
+      Authorization: `Bearer ${token}`,
+    }
+
+    const [dashboardResponse, companiesResponse, usersResponse] = await Promise.all([
+      fetch('/api/platform/dashboard', { headers }),
+      fetch('/api/platform/companies', { headers }),
+      fetch('/api/platform/users', { headers }),
+    ])
+
+    if (!dashboardResponse.ok || !companiesResponse.ok || !usersResponse.ok) {
+      setPlatformStatus('Не удалось загрузить администрирование')
+      return
+    }
+
+    setPlatformDashboard(await dashboardResponse.json())
+    setPlatformCompanies(await companiesResponse.json())
+    setPlatformUsers(await usersResponse.json())
+    setPlatformStatus('')
+  }
+
+  async function runPlatformAction(path: string, options: RequestInit = {}) {
+    setPlatformStatus('Выполняем действие...')
+    const response = await fetch(path, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(options.headers ?? {}),
+      },
+    })
+
+    if (!response.ok) {
+      setPlatformStatus(getApiErrorMessage(await response.text(), 'Не удалось выполнить действие'))
+      return null
+    }
+
+    await loadPlatformData()
+    setPlatformStatus('Готово')
+    return response
+  }
+
+  async function extendCompanyTrial(company: PlatformCompany) {
+    const value = window.prompt(`На сколько дней продлить триал компании ${company.name}?`, '3')
+    if (!value) {
+      return
+    }
+
+    const days = Number(value)
+    await runPlatformAction(`/api/platform/companies/${company.id}/extend-trial`, {
+      method: 'POST',
+      body: JSON.stringify({ days: Number.isFinite(days) ? days : 3 }),
+    })
+  }
+
+  async function changeCompanySubscription(company: PlatformCompany) {
+    const status = window.prompt('Статус подписки: Trial, Active, PastDue, Blocked', company.subscriptionStatus)
+    if (!status) {
+      return
+    }
+
+    const paidUntil = window.prompt('Дата окончания подписки в формате YYYY-MM-DD или пусто', company.subscriptionPaidUntil?.slice(0, 10) ?? '')
+    await runPlatformAction(`/api/platform/companies/${company.id}/subscription`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        status,
+        trialEndsAt: status === 'Trial' ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() : null,
+        subscriptionPaidUntil: paidUntil ? new Date(`${paidUntil}T23:59:59`).toISOString() : null,
+      }),
+    })
+  }
+
+  async function blockCompany(company: PlatformCompany) {
+    if (!window.confirm(`Заблокировать компанию ${company.name}?`)) {
+      return
+    }
+
+    await runPlatformAction(`/api/platform/companies/${company.id}/block`, { method: 'POST' })
+  }
+
+  async function unblockCompany(company: PlatformCompany) {
+    await runPlatformAction(`/api/platform/companies/${company.id}/unblock`, { method: 'POST' })
+  }
+
+  async function impersonateCompany(company: PlatformCompany) {
+    if (!window.confirm(`Войти как компания ${company.name}?`)) {
+      return
+    }
+
+    const response = await runPlatformAction(`/api/platform/companies/${company.id}/impersonate`, { method: 'POST' })
+    if (!response) {
+      return
+    }
+
+    const data: { token: string; user: User } = await response.json()
+    localStorage.setItem('authToken', data.token)
+    localStorage.setItem('authUser', JSON.stringify(data.user))
+    setToken(data.token)
+    setUser(data.user)
+    setActiveTab('dashboard')
+  }
+
+  async function returnToFulvero() {
+    const response = await fetch('/api/platform/return', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      return
+    }
+
+    const data: { token: string; user: User } = await response.json()
+    localStorage.setItem('authToken', data.token)
+    localStorage.setItem('authUser', JSON.stringify(data.user))
+    setToken(data.token)
+    setUser(data.user)
+    setActiveTab('platform')
   }
 
   async function loadOzonIntegrationStatus() {
@@ -2439,7 +2621,7 @@ function App() {
     setShowCreateSupplyModal(false)
     setSupplyStatus('Поставка создана со статусом "Создано"')
     await loadSupplies()
-    if (user?.role === 'Admin') {
+    if (isAdminLike) {
       await loadSupplyAnalytics()
     }
   }
@@ -2547,7 +2729,7 @@ function App() {
 
     setSupplyStatus('Статус поставки сохранен')
     await loadSupplies()
-    if (user?.role === 'Admin') {
+    if (isAdminLike) {
       await loadSupplyAnalytics()
     }
   }
@@ -2582,7 +2764,7 @@ function App() {
     setSupplyStatus('Факт заказа сохранен')
     await loadSupplies()
     await loadProductSupplierLinks()
-    if (user?.role === 'Admin') {
+    if (isAdminLike) {
       await loadSupplyAnalytics()
     }
   }
@@ -2905,7 +3087,7 @@ function App() {
   }
 
   if (user && !user.hasActiveSubscription) {
-    const canPaySubscription = user.role === 'Admin'
+    const canPaySubscription = isAdminLike
 
     return (
       <main className="login-page">
@@ -3026,6 +3208,15 @@ function App() {
           </button>
         </div>
       </header>
+
+      {user?.isImpersonating && (
+        <section className="impersonation-banner">
+          <span>Вы работаете от имени компании {user.impersonatedCompanyName || user.companyName}</span>
+          <button type="button" onClick={returnToFulvero}>
+            Вернуться в Fulvero
+          </button>
+        </section>
+      )}
 
       {showProfileModal && (
         <div className="modal-backdrop" role="presentation">
@@ -3395,7 +3586,7 @@ function App() {
                   <p>{productionSubTab === 'tasks' ? taskStatus : productionStatus || 'Фото, данные и задачи'}</p>
                 </div>
                 <span className="section-actions">
-                  {productionSubTab === 'archive' && user?.role === 'Admin' && hasSubFeature('production.archive', 'production') && (
+                  {productionSubTab === 'archive' && isAdminLike && hasSubFeature('production.archive', 'production') && (
                     <button type="button" className="header-action" onClick={exportTaskArchive}>
                       Скачать CSV
                     </button>
@@ -3576,7 +3767,7 @@ function App() {
 
               {productionSubTab === 'tasks' && (
                 <>
-                  {user?.role === 'Admin' && hasSubFeature('production.createTask', 'production') && (
+                  {isAdminLike && hasSubFeature('production.createTask', 'production') && (
                     <div className="supply-create-bar">
                       <button type="button" onClick={() => setShowCreateTaskModal(true)}>
                         Создать задачу
@@ -3584,7 +3775,7 @@ function App() {
                     </div>
                   )}
 
-                  {showCreateTaskModal && user?.role === 'Admin' && (
+                  {showCreateTaskModal && isAdminLike && (
                     <div className="modal-backdrop" role="presentation">
                       <div className="modal-card modal-card-wide" role="dialog" aria-modal="true">
                         <div className="modal-title-row">
@@ -3704,7 +3895,7 @@ function App() {
                 <ProductionTaskArchiveTable
                   tasks={completedProductionTasks}
                   products={ozonProducts}
-                  onArchive={user?.role === 'Admin' ? archiveProductionTask : undefined}
+                  onArchive={isAdminLike ? archiveProductionTask : undefined}
                   emptyText="Выполненных задач пока нет."
                 />
               )}
@@ -3713,7 +3904,7 @@ function App() {
                 <ProductionTaskArchiveTable
                   tasks={archivedProductionTasks}
                   products={ozonProducts}
-                  onDelete={user?.role === 'Admin' ? deleteProductionTask : undefined}
+                  onDelete={isAdminLike ? deleteProductionTask : undefined}
                   emptyText="В архиве задач пока нет."
                 />
               )}
@@ -3728,7 +3919,7 @@ function App() {
               </div>
 
               <div className="subtabs-placeholder">
-                {user?.role === 'Admin' && (
+                {isAdminLike && (
                   <button type="button" onClick={loadOzonProducts}>
                     Обновить товары Ozon
                   </button>
@@ -4109,7 +4300,7 @@ function App() {
                   <h2>Поставки</h2>
                   <p>{supplyStatus || 'Создание, статусы и аналитика поставок'}</p>
                 </div>
-                {user?.role === 'Admin' && (
+                {isAdminLike && (
                   <button
                     type="button"
                     className="header-action"
@@ -4130,7 +4321,7 @@ function App() {
                 >
                   Создать поставку
                 </button>
-                {user?.role === 'Admin' && (
+                {isAdminLike && (
                   <button
                     type="button"
                     className={supplySubTab === 'editor' ? 'active' : ''}
@@ -4148,7 +4339,7 @@ function App() {
                 >
                   Все поставки
                 </button>
-                {user?.role === 'Admin' && (
+                {isAdminLike && (
                   <button
                     type="button"
                     className={supplySubTab === 'analytics' ? 'active' : ''}
@@ -4189,7 +4380,7 @@ function App() {
                     <button type="button" onClick={() => setShowCreateSupplyModal(true)}>
                       Создать поставку
                     </button>
-                    {user?.role === 'Admin' && (
+                    {isAdminLike && (
                       <>
                       <button type="button" onClick={downloadSupplyTemplate}>
                         Скачать Excel-шаблон
@@ -4435,7 +4626,7 @@ function App() {
 
               {supplySubTab === 'all' && <AllSuppliesTable supplies={visibleAllSupplies} />}
 
-              {supplySubTab === 'archive' && user?.role === 'Admin' && (
+              {supplySubTab === 'archive' && isAdminLike && (
                 <SupplyTable
                   supplies={archivedSupplies}
                   ozonProducts={ozonProducts}
@@ -4603,7 +4794,7 @@ function App() {
                             )}
                             <span>
                               {formatDateTime(message.createdAt)}
-                              {(message.isOwn || user?.role === 'Admin') && (
+                              {(message.isOwn || isAdminLike) && (
                                 <button type="button" onClick={() => deleteChatMessage(message.id)}>
                                   Удалить
                                 </button>
@@ -4663,7 +4854,7 @@ function App() {
             </section>
           )}
 
-          {activeTab === 'integration' && user?.role === 'Admin' && (
+          {activeTab === 'integration' && isAdminLike && (
             <section className="admin-panel">
               <div className="section-title">
                 <div>
@@ -4784,7 +4975,144 @@ function App() {
             </section>
           )}
 
-          {activeTab === 'users' && user?.role === 'Admin' && (
+          {activeTab === 'platform' && isSuperAdmin && (
+            <section className="admin-panel platform-admin-panel">
+              <div className="section-title">
+                <h2>Администрирование</h2>
+                <p>Управление компаниями, пользователями и подписками Fulvero</p>
+              </div>
+
+              <div className="inner-tabs">
+                <button type="button" className={platformSubTab === 'dashboard' ? 'active' : ''} onClick={() => setPlatformSubTab('dashboard')}>
+                  Dashboard
+                </button>
+                <button type="button" className={platformSubTab === 'companies' ? 'active' : ''} onClick={() => setPlatformSubTab('companies')}>
+                  Компании
+                </button>
+                <button type="button" className={platformSubTab === 'users' ? 'active' : ''} onClick={() => setPlatformSubTab('users')}>
+                  Пользователи
+                </button>
+              </div>
+
+              {platformStatus && <p className="status-line">{platformStatus}</p>}
+
+              {platformSubTab === 'dashboard' && (
+                <div className="dashboard-grid platform-dashboard-grid">
+                  <article className="metric-card">
+                    <strong>{platformDashboard?.totalCompanies ?? 0}</strong>
+                    <span>всего компаний</span>
+                  </article>
+                  <article className="metric-card">
+                    <strong>{platformDashboard?.trialCompanies ?? 0}</strong>
+                    <span>на триале</span>
+                  </article>
+                  <article className="metric-card">
+                    <strong>{platformDashboard?.activeSubscriptions ?? 0}</strong>
+                    <span>активных подписок</span>
+                  </article>
+                  <article className="metric-card">
+                    <strong>{platformDashboard?.pastDueSubscriptions ?? 0}</strong>
+                    <span>просроченных</span>
+                  </article>
+                  <article className="metric-card">
+                    <strong>{platformDashboard?.totalUsers ?? 0}</strong>
+                    <span>пользователей</span>
+                  </article>
+                  <article className="metric-card">
+                    <strong>{platformDashboard?.ozonConnections ?? 0}</strong>
+                    <span>Ozon подключений</span>
+                  </article>
+                  <article className="metric-card">
+                    <strong>{platformDashboard?.telegramConnections ?? 0}</strong>
+                    <span>Telegram подключений</span>
+                  </article>
+                </div>
+              )}
+
+              {platformSubTab === 'companies' && (
+                <div className="table-wrap platform-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Компания</th>
+                        <th>Регистрация</th>
+                        <th>Подписка</th>
+                        <th>Окончание</th>
+                        <th>Пользователи</th>
+                        <th>Ozon</th>
+                        <th>Telegram</th>
+                        <th>Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {platformCompanies.map((company) => (
+                        <tr key={company.id}>
+                          <td>
+                            <strong>{company.name}</strong>
+                            {company.isSystemCompany && <small>Системная</small>}
+                          </td>
+                          <td>{formatDateTime(company.createdAt)}</td>
+                          <td>{company.subscriptionStatus}</td>
+                          <td>{company.subscriptionPaidUntil ? formatDateTime(company.subscriptionPaidUntil) : '-'}</td>
+                          <td>{company.userCount}</td>
+                          <td>{company.ozonConnected ? 'Да' : 'Нет'}</td>
+                          <td>{company.telegramConnected ? 'Да' : 'Нет'}</td>
+                          <td>
+                            <div className="platform-actions">
+                              <button type="button" onClick={() => extendCompanyTrial(company)} disabled={company.isSystemCompany}>
+                                Триал
+                              </button>
+                              <button type="button" onClick={() => changeCompanySubscription(company)}>
+                                Подписка
+                              </button>
+                              <button type="button" onClick={() => blockCompany(company)} disabled={company.isSystemCompany || company.subscriptionStatus === 'Blocked'}>
+                                Блок
+                              </button>
+                              <button type="button" onClick={() => unblockCompany(company)} disabled={company.isSystemCompany || company.subscriptionStatus !== 'Blocked'}>
+                                Разблок
+                              </button>
+                              <button type="button" onClick={() => impersonateCompany(company)} disabled={company.isSystemCompany}>
+                                Войти как компания
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {platformSubTab === 'users' && (
+                <div className="table-wrap platform-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Компания</th>
+                        <th>Логин</th>
+                        <th>Email</th>
+                        <th>Роль</th>
+                        <th>Регистрация</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {platformUsers.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.companyName}</td>
+                          <td>{item.userName}</td>
+                          <td>{item.email || '-'}</td>
+                          <td>{item.role}</td>
+                          <td>{formatDateTime(item.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeTab === 'users' && isAdminLike && (
             <section className="admin-panel">
               <div className="section-title">
                 <h2>Пользователи</h2>
@@ -5038,7 +5366,7 @@ function App() {
             </section>
           )}
 
-          {activeTab === 'settings' && user?.role === 'Admin' && (
+          {activeTab === 'settings' && isAdminLike && (
             <section className="admin-panel">
               <div className="section-title">
                 <div>
@@ -5061,7 +5389,7 @@ function App() {
                   <strong>{user.hasActiveSubscription ? 'Активен' : 'Нужна оплата'}</strong>
                   <small>{getTrialRemainingText(user.trialEndsAt)}</small>
                   <small>{getSubscriptionRemainingText(user.subscriptionPaidUntil)}</small>
-                  {user.role === 'Admin' ? (
+                  {isAdminLike ? (
                     <button type="button" className="settings-card-action" onClick={startSubscriptionCheckout}>
                       Продлить тариф
                     </button>
@@ -5381,7 +5709,7 @@ function ProductDetail({
               <button type="button" onClick={() => onDownload(file.id)}>
                 Скачать
               </button>
-              {userRole === 'Admin' && (
+              {(userRole === 'Admin' || userRole === 'SuperAdmin') && (
                 <button type="button" className="danger" onClick={() => onDelete(file.id)}>
                   Удалить
                 </button>
@@ -5794,7 +6122,7 @@ function SupplyTable({
     <div className="supply-list">
       {supplies.map((supply) => {
         const isEditing = editingSupplyId === supply.id
-        const canEdit = !archiveMode && (userRole === 'Admin' || supply.status === 'Created')
+        const canEdit = !archiveMode && ((userRole === 'Admin' || userRole === 'SuperAdmin') || supply.status === 'Created')
         const isArchiveExpanded = expandedArchiveSupplyIds[supply.id] ?? false
         const showItems = (archiveMode && isArchiveExpanded) || isEditing || (!archiveMode && !hideItemsUntilEdit)
         const allItemsOrdered = supply.items.length > 0 && supply.items.every((item) => item.actualOrderQuantity > 0)
@@ -5836,7 +6164,7 @@ function SupplyTable({
                       </button>
                     </>
                   )}
-                  {userRole === 'Admin' && !archiveMode && supply.status === 'Sent' && (
+                  {(userRole === 'Admin' || userRole === 'SuperAdmin') && !archiveMode && supply.status === 'Sent' && (
                     <>
                       <button type="button" onClick={() => onStatusChange(supply.id, 'Accepted')}>
                         Принято
@@ -5857,12 +6185,12 @@ function SupplyTable({
                       Редактировать
                     </button>
                   )}
-                  {userRole === 'Admin' && !archiveMode && (
+                  {(userRole === 'Admin' || userRole === 'SuperAdmin') && !archiveMode && (
                     <button type="button" onClick={() => onArchiveSupply(supply.id)}>
                       Архивировать
                     </button>
                   )}
-                  {userRole === 'Admin' && archiveMode && (
+                  {(userRole === 'Admin' || userRole === 'SuperAdmin') && archiveMode && (
                     <>
                       <button
                         type="button"
@@ -5888,7 +6216,7 @@ function SupplyTable({
               )}
             </div>
 
-            {userRole === 'Admin' && (
+            {(userRole === 'Admin' || userRole === 'SuperAdmin') && (
               <details className="supply-history">
                 <summary>История изменений</summary>
                 <div className="supply-history-list">
