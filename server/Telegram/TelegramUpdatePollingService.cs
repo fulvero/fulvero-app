@@ -307,13 +307,18 @@ public class TelegramUpdatePollingService(
 
     private static string GetChatTitle(TelegramChat chat, TelegramUser? user)
     {
-        var title = chat.Title;
-        if (!string.IsNullOrWhiteSpace(title))
+        var username = user?.Username ?? chat.Username;
+        if (!string.IsNullOrWhiteSpace(username))
         {
-            return title.Trim();
+            return $"@{username.Trim().TrimStart('@')}";
         }
 
-        return string.Join(" ", new[] { chat.FirstName, chat.LastName, chat.Username, user?.FirstName, user?.LastName, user?.Username }.Where(value => !string.IsNullOrWhiteSpace(value))).Trim();
+        if (!string.IsNullOrWhiteSpace(chat.Title))
+        {
+            return chat.Title.Trim();
+        }
+
+        return string.Join(" ", new[] { user?.FirstName, user?.LastName, chat.FirstName, chat.LastName }.Where(value => !string.IsNullOrWhiteSpace(value))).Trim();
     }
 
     private static string SanitizeWebhookUrl(string webhookUrl)

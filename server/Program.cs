@@ -3510,11 +3510,28 @@ static class TelegramIntegrationAccess
             integration.ChatId is not null,
             integration.LinkCode,
             bot.GetStartUrl(integration.LinkCode),
-            integration.ChatTitle,
+            FormatChatTitle(integration.ChatTitle),
             integration.LinkedAt);
 
     public static string CreateCode() =>
         Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant();
+
+    private static string FormatChatTitle(string chatTitle)
+    {
+        var trimmed = chatTitle.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return string.Empty;
+        }
+
+        var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 1 && parts.Select(part => part.TrimStart('@')).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1)
+        {
+            return parts[0].Trim();
+        }
+
+        return trimmed;
+    }
 }
 
 static class SubscriptionAccess
