@@ -12,6 +12,219 @@
     <link rel="icon" type="image/png" href="./assets/favicon.png" />
     <link rel="apple-touch-icon" href="./assets/favicon.png" />
     <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .hero-product .browser-frame {
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+        border: 1px solid rgba(105, 160, 255, .32);
+        border-radius: 8px;
+        background: #0a1425;
+        box-shadow: 0 28px 90px rgba(0, 0, 0, .45), 0 0 60px rgba(31, 122, 255, .22);
+      }
+      .hero-product .browser-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 38px;
+        border-bottom: 1px solid rgba(139, 180, 255, .16);
+        padding: 0 14px;
+        background: #0d182b;
+      }
+      .hero-product .browser-top span {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #557092;
+      }
+      .hero-product .browser-top strong {
+        margin-left: 8px;
+        color: rgba(226, 238, 255, .7);
+        font-size: 12px;
+      }
+      .hero-product .app-shell {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 172px 1fr;
+        min-height: 520px;
+        background: #0b1424;
+      }
+      .hero-product .app-shell aside {
+        border-right: 1px solid rgba(139, 180, 255, .15);
+        padding: 16px 12px;
+        background: #07111f;
+      }
+      .hero-product .app-shell aside img {
+        display: block;
+        width: 120px;
+        margin-bottom: 14px;
+        border-radius: 8px;
+        padding: 7px 9px;
+        background: #050b18;
+      }
+      .hero-product .app-shell aside b {
+        display: block;
+        margin-bottom: 16px;
+        color: #fff;
+        font-size: 13px;
+      }
+      .hero-product .app-shell aside nav {
+        display: grid;
+        gap: 8px;
+      }
+      .hero-product .app-shell aside span {
+        display: block;
+        border-radius: 8px;
+        padding: 10px;
+        color: rgba(236, 245, 255, .76);
+        font-size: 13px;
+        font-weight: 860;
+      }
+      .hero-product .app-shell aside .active {
+        color: #fff;
+        background: rgba(31, 122, 255, .22);
+        box-shadow: inset 0 0 0 1px rgba(74, 164, 255, .24);
+      }
+      .hero-product .dashboard {
+        min-width: 0;
+        padding: 18px;
+        background: #0d182b;
+      }
+      .hero-product .dashboard header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 14px;
+      }
+      .hero-product .dashboard h2 {
+        margin-bottom: 3px;
+        font-size: 24px;
+      }
+      .hero-product .dashboard p {
+        margin-bottom: 0;
+      }
+      .hero-product .dashboard header a {
+        flex: 0 0 auto;
+        border-radius: 8px;
+        padding: 11px 14px;
+        color: #fff;
+        background: #156dff;
+        font-size: 13px;
+        font-weight: 860;
+      }
+      .hero-product .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .hero-product .kpi-grid article,
+      .hero-product .work-grid article {
+        border: 1px solid rgba(135, 180, 255, .18);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, .045);
+      }
+      .hero-product .kpi-grid article {
+        min-height: 104px;
+        padding: 14px;
+      }
+      .hero-product .kpi-grid b {
+        display: block;
+        margin-bottom: 8px;
+        color: #54c7ff;
+        font-size: 34px;
+        line-height: 1;
+      }
+      .hero-product .kpi-grid span {
+        color: rgba(226, 238, 255, .74);
+        font-size: 12px;
+        font-weight: 860;
+      }
+      .hero-product .work-grid {
+        display: grid;
+        grid-template-columns: 1.25fr .75fr;
+        gap: 10px;
+      }
+      .hero-product .work-grid article {
+        padding: 14px;
+      }
+      .hero-product .table-head,
+      .hero-product .work-grid .wide p {
+        display: grid;
+        grid-template-columns: 1.2fr .8fr .8fr;
+        gap: 10px;
+        align-items: center;
+      }
+      .hero-product .table-head {
+        margin-bottom: 8px;
+        color: rgba(226, 238, 255, .66);
+        font-size: 12px;
+        font-weight: 920;
+      }
+      .hero-product .work-grid .wide p {
+        margin: 0;
+        border-top: 1px solid rgba(139, 180, 255, .12);
+        padding: 11px 0;
+        font-size: 12px;
+      }
+      .hero-product .work-grid .wide p b {
+        color: #fff;
+      }
+      .hero-product .work-grid .wide strong {
+        border-radius: 999px;
+        padding: 5px 8px;
+        color: #b8ffdf;
+        background: rgba(49, 214, 160, .12);
+        font-size: 11px;
+        text-align: center;
+      }
+      .hero-product .status-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+      .hero-product .status-list span {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border: 1px solid rgba(139, 180, 255, .14);
+        border-radius: 8px;
+        padding: 12px;
+        color: rgba(236, 245, 255, .86);
+        background: rgba(255, 255, 255, .035);
+        font-weight: 860;
+      }
+      .hero-product .status-list strong {
+        color: #54c7ff;
+      }
+      @media (max-width: 860px) {
+        .hero-product .app-shell {
+          grid-template-columns: 1fr;
+          min-height: 0;
+        }
+        .hero-product .app-shell aside {
+          display: none;
+        }
+        .hero-product .dashboard {
+          padding: 12px;
+        }
+        .hero-product .dashboard header,
+        .hero-product .kpi-grid,
+        .hero-product .work-grid,
+        .hero-product .table-head,
+        .hero-product .work-grid .wide p {
+          grid-template-columns: 1fr;
+        }
+        .hero-product .dashboard header {
+          display: grid;
+        }
+        .hero-product .dashboard header a {
+          width: 100%;
+          text-align: center;
+        }
+      }
+    </style>
   </head>
   <body>
     <!-- Yandex.Metrika counter -->
