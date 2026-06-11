@@ -1338,7 +1338,35 @@
 
 .stock-row,
 .table-head:has(+ .stock-row) {
-  grid-template-columns: minmax(280px, 2fr) minmax(130px, 0.8fr) minmax(90px, 0.5fr) minmax(90px, 0.5fr) minmax(150px, 0.8fr) minmax(110px, 0.6fr);
+  grid-template-columns: minmax(280px, 2fr) minmax(130px, 0.8fr) minmax(112px, 0.6fr) minmax(90px, 0.5fr) minmax(150px, 0.8fr) minmax(110px, 0.6fr);
+}
+
+.stock-fbo-cell {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.stock-fbo-cell b {
+  color: #121826;
+  font-size: 18px;
+}
+
+.stock-warehouses-button {
+  width: auto;
+  min-height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.stock-warehouses-button:hover {
+  background: #dbeafe;
 }
 
 .ozon-product-row {
@@ -1669,6 +1697,100 @@
   border-radius: 8px;
   padding: 8px 10px;
   background: #f8fafc;
+}
+
+.ozon-onboarding-card {
+  position: relative;
+  width: min(720px, 100%);
+  gap: 14px;
+  border-color: #d9dee7;
+  padding: 22px;
+  background: #ffffff;
+}
+
+.ozon-connected-card {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.ozon-onboarding-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: auto;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  color: #2563eb;
+  background: #ffffff;
+  font: inherit;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ozon-onboarding-close:hover {
+  color: #1d4ed8;
+}
+
+.ozon-onboarding-header {
+  display: grid;
+  gap: 7px;
+  max-width: 620px;
+  padding-right: 36px;
+}
+
+.ozon-onboarding-header h3 {
+  margin: 0;
+  color: #121826;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.ozon-onboarding-header p {
+  margin: 0;
+  color: #344054;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ozon-onboarding-header .ozon-onboarding-description {
+  color: #667085;
+  font-weight: 700;
+}
+
+.ozon-onboarding-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.ozon-onboarding-button {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font: inherit;
+  font-weight: 900;
+  text-align: center;
+  cursor: pointer;
+}
+
+.ozon-onboarding-button.primary {
+  border: 0;
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.ozon-onboarding-button.secondary {
+  border: 1px solid #cfd6e3;
+  color: #344054;
+  background: #ffffff;
 }
 
 .sales-chart-shell {
@@ -2138,6 +2260,81 @@
   max-width: 720px;
 }
 
+.warehouse-stock-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.warehouse-stock-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.warehouse-stock-summary span {
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.warehouse-stock-summary b,
+.warehouse-stock-summary small {
+  display: block;
+}
+
+.warehouse-stock-summary b {
+  color: #121826;
+  font-size: 22px;
+}
+
+.warehouse-stock-summary small {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.warehouse-stock-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+}
+
+.warehouse-stock-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 92px 92px 92px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid #edf0f5;
+}
+
+.warehouse-stock-row:first-child {
+  border-top: 0;
+}
+
+.warehouse-stock-head {
+  color: #667085;
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.warehouse-stock-row strong,
+.warehouse-stock-row small {
+  display: block;
+}
+
+.warehouse-stock-row small {
+  margin-top: 3px;
+  color: #667085;
+}
+
 .urgent-stock-list {
   display: grid;
   gap: 10px;
@@ -2172,6 +2369,14 @@
 
   .dashboard-card-wide {
     grid-column: auto;
+  }
+
+  .ozon-onboarding-actions {
+    flex-direction: column;
+  }
+
+  .ozon-onboarding-button {
+    width: 100%;
   }
 
   .stock-table {
@@ -2230,12 +2435,50 @@
     max-width: 100%;
   }
 
+  .stock-table .stock-warehouses-button {
+    width: auto;
+  }
+
   .stock-table .stock-row strong,
   .stock-table .stock-row small,
   .stock-table .stock-row a {
     max-width: 100%;
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+
+  .warehouse-stock-summary,
+  .warehouse-stock-row {
+    grid-template-columns: 1fr;
+  }
+
+  .warehouse-stock-head {
+    display: none;
+  }
+
+  .warehouse-stock-row {
+    gap: 6px;
+  }
+
+  .warehouse-stock-row > span:not(:first-child)::before {
+    display: inline-block;
+    min-width: 78px;
+    margin-right: 8px;
+    color: #667085;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .warehouse-stock-row > span:nth-child(2)::before {
+    content: 'Свободно';
+  }
+
+  .warehouse-stock-row > span:nth-child(3)::before {
+    content: 'Резерв';
+  }
+
+  .warehouse-stock-row > span:nth-child(4)::before {
+    content: 'Обещано';
   }
 }
 

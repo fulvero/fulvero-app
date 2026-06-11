@@ -141,6 +141,17 @@ type OzonStock = {
   fbsPresent: number
   productUrl: string
   imageUrl: string
+  fboWarehouses: OzonWarehouseStock[]
+}
+
+type OzonWarehouseStock = {
+  sku: number
+  offerId: string
+  productName: string
+  warehouseName: string
+  present: number
+  reserved: number
+  promised: number
 }
 
 type OzonAnalytics = {
@@ -395,6 +406,7 @@ function App() {
   const [ozonClientId, setOzonClientId] = useState('')
   const [ozonApiKey, setOzonApiKey] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
+  const [isOzonOnboardingDismissed, setIsOzonOnboardingDismissed] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [passwordResetToken, setPasswordResetToken] = useState(() => new URLSearchParams(window.location.search).get('resetToken') ?? '')
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(() => {
@@ -416,6 +428,7 @@ function App() {
   const [urgentStockOnly, setUrgentStockOnly] = useState(false)
   const [urgentStockStatus, setUrgentStockStatus] = useState('')
   const [showUrgentStockModal, setShowUrgentStockModal] = useState(false)
+  const [warehouseStockProduct, setWarehouseStockProduct] = useState<OzonStock | null>(null)
   const [urgentStockResults, setUrgentStockResults] = useState<UrgentStockItem[]>([])
   const [priceStatus, setPriceStatus] = useState('')
   const [editingPrices, setEditingPrices] = useState<Record<number, string>>({})
@@ -653,6 +666,10 @@ function App() {
   const notificationTotal = unseenNewProductionTasks.length + unseenInProgressProductionTasks.length + chatUnreadTotal
   const isSuperAdmin = user?.role === 'SuperAdmin'
   const isAdminLike = user?.role === 'Admin' || isSuperAdmin
+  const ozonIntegrationLoaded = ozonIntegration !== null || Boolean(ozonIntegrationStatus)
+  const hasActiveOzonIntegration = ozonIntegration?.success === true
+  const showOzonOnboarding = isAdminLike && ozonIntegrationLoaded && !hasActiveOzonIntegration && !isOzonOnboardingDismissed
+  const showOzonConnectedNotice = isAdminLike && ozonIntegrationLoaded && hasActiveOzonIntegration
   const hasFeature = (feature: string) =>
     isAdminLike || Boolean(user?.allowedFeatures?.includes(feature))
   const hasSubFeature = (feature: string, _fallback: string) => hasFeature(feature)
@@ -692,6 +709,10 @@ function App() {
     setSeenNewTaskNotificationIds(readStringListFromStorage(getTaskNotificationStorageKey(user.id, 'new')))
     setSeenInProgressTaskNotificationIds(readStringListFromStorage(getTaskNotificationStorageKey(user.id, 'in-progress')))
   }, [user?.id])
+
+  useEffect(() => {
+    setIsOzonOnboardingDismissed(false)
+  }, [user?.companyId])
 
   useEffect(() => {
     if (!user || visibleTabs.some((tab) => tab.id === activeTab)) {
@@ -927,6 +948,7 @@ function App() {
       },
       body: JSON.stringify({
         companyName: formData.get('companyName'),
+        companyLoginName: formData.get('companyLoginName'),
         userName: formData.get('userName'),
         email: formData.get('email'),
         displayName: formData.get('displayName'),
@@ -3009,9 +3031,19 @@ function App() {
           ) : (
             <>
               <label>
-                Компания
-                <input name="companyName" autoComplete="organization" required />
+                {authMode === 'register' ? 'Название компании' : 'Логин компании'}
+                <input
+                  name="companyName"
+                  autoComplete={authMode === 'register' ? 'organization' : 'organization'}
+                  required
+                />
               </label>
+              {authMode === 'register' && (
+                <label>
+                  Логин компании для входа
+                  <input name="companyLoginName" autoComplete="organization" required />
+                </label>
+              )}
               {authMode === 'register' && (
                 <label>
                   Имя первого сотрудника
@@ -3440,6 +3472,64 @@ function App() {
         </div>
       )}
 
+      {warehouseStockProduct && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card warehouse-stock-modal" role="dialog" aria-modal="true">
+            <div className="modal-title-row">
+              <div>
+                <h3>Остатки FBO по складам Ozon</h3>
+                <p>{warehouseStockProduct.offerId} · {warehouseStockProduct.name}</p>
+              </div>
+              <button type="button" onClick={() => setWarehouseStockProduct(null)}>
+                Закрыть
+              </button>
+            </div>
+
+            <div className="warehouse-stock-summary">
+              <span>
+                <b>{formatPlainNumber(warehouseStockProduct.fboPresent)}</b>
+                <small>FBO всего</small>
+              </span>
+              <span>
+                <b>{formatPlainNumber((warehouseStockProduct.fboWarehouses ?? []).length)}</b>
+                <small>складов</small>
+              </span>
+              <span>
+                <b>{warehouseStockProduct.sku ?? '—'}</b>
+                <small>SKU</small>
+              </span>
+            </div>
+
+            {(warehouseStockProduct.fboWarehouses ?? []).length > 0 ? (
+              <div className="warehouse-stock-list">
+                <div className="warehouse-stock-row warehouse-stock-head">
+                  <span>Склад</span>
+                  <span>Свободно</span>
+                  <span>Резерв</span>
+                  <span>Обещано</span>
+                </div>
+                {(warehouseStockProduct.fboWarehouses ?? []).map((warehouse, index) => (
+                  <div className="warehouse-stock-row" key={`${warehouse.warehouseName}-${warehouse.sku}-${index}`}>
+                    <span>
+                      <strong>{warehouse.warehouseName}</strong>
+                      {warehouse.productName && <small>{warehouse.productName}</small>}
+                    </span>
+                    <span>{formatPlainNumber(warehouse.present)}</span>
+                    <span>{formatPlainNumber(warehouse.reserved)}</span>
+                    <span>{formatPlainNumber(warehouse.promised)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <strong>Ozon не вернул разбивку по складам.</strong>
+                <p>Общий FBO-остаток виден в строке товара. Разбивка появится, когда API Ozon отдаст данные по складам.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="app-content">
         <section className="workspace">
           {activeTab === 'dashboard' && (
@@ -3448,6 +3538,27 @@ function App() {
                 <h2>Главная</h2>
                 <p>Сводка по товарам, производству, поставкам и продажам</p>
               </div>
+
+              {showOzonOnboarding && (
+                <OzonOnboardingCard
+                  onDismiss={() => setIsOzonOnboardingDismissed(true)}
+                  onOpenIntegrations={() => setActiveTab('integration')}
+                />
+              )}
+
+              {showOzonConnectedNotice && (
+                <div className="dashboard-card ozon-onboarding-card ozon-connected-card">
+                  <div className="dashboard-card-head">
+                    <span>
+                      <strong>✅ Ozon успешно подключён</strong>
+                      <small>Ваши товары и данные доступны в системе.</small>
+                    </span>
+                    <button type="button" className="compact-button" onClick={() => setActiveTab('integration')}>
+                      Настройки
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="dashboard-grid">
                 <article className="dashboard-card dashboard-card-wide attention-card">
@@ -4277,6 +4388,7 @@ function App() {
                       setEditingPrices((current) => ({ ...current, [item.productId]: value }))
                     }
                     onSave={() => updateOzonPrice(item)}
+                    onShowWarehouses={() => setWarehouseStockProduct(item)}
                     canEditPrice={hasSubFeature('pooling.editPrices', 'pooling')}
                   />
                 ))}
@@ -6636,6 +6748,7 @@ function StockRow({
   priceValue,
   onPriceChange,
   onSave,
+  onShowWarehouses,
   canEditPrice,
 }: {
   item: OzonStock
@@ -6643,6 +6756,7 @@ function StockRow({
   priceValue: string
   onPriceChange: (value: string) => void
   onSave: () => void
+  onShowWarehouses: () => void
   canEditPrice: boolean
 }) {
   return (
@@ -6661,7 +6775,17 @@ function StockRow({
         )}
       </span>
       <span data-label="Артикул">{item.offerId}</span>
-      <span data-label="FBO">{item.fboPresent}</span>
+      <span className="stock-fbo-cell" data-label="FBO">
+        <b>{item.fboPresent}</b>
+        <button
+          type="button"
+          className="stock-warehouses-button"
+          onClick={onShowWarehouses}
+          title="Посмотреть остатки по складам Ozon"
+        >
+          Склады
+        </button>
+      </span>
       <span data-label="FBS">{item.fbsPresent}</span>
       <span className="stock-price-cell" data-label="Цена">
         <input
@@ -6676,6 +6800,50 @@ function StockRow({
         </button>
       </span>
     </div>
+  )
+}
+
+function OzonOnboardingCard({
+  onDismiss,
+  onOpenIntegrations,
+}: {
+  onDismiss: () => void
+  onOpenIntegrations: () => void
+}) {
+  return (
+    <section className="dashboard-card ozon-onboarding-card" aria-label="Подключение Ozon">
+      <button
+        type="button"
+        className="ozon-onboarding-close"
+        aria-label="Скрыть подсказку подключения Ozon"
+        onClick={onDismiss}
+      >
+        ×
+      </button>
+
+      <div className="ozon-onboarding-header">
+        <h3>🎉 Добро пожаловать в Fulvero!</h3>
+        <p>До начала работы остался всего один шаг — подключить Ozon.</p>
+        <p className="ozon-onboarding-description">
+          Fulvero автоматически загрузит ваши товары и поможет контролировать остатки, закупки, поставки,
+          производство и работу команды.
+        </p>
+      </div>
+
+      <div className="ozon-onboarding-actions">
+        <a
+          className="ozon-onboarding-button primary"
+          href="https://seller.ozon.ru/app/settings/api-keys"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          🔑 Получить API-ключ Ozon
+        </a>
+        <button type="button" className="ozon-onboarding-button secondary" onClick={onOpenIntegrations}>
+          ⚙️ Перейти в Интеграции
+        </button>
+      </div>
+    </section>
   )
 }
 

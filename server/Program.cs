@@ -191,11 +191,12 @@ app.MapPost("/api/auth/register", async (
     CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.CompanyName)
+        || string.IsNullOrWhiteSpace(request.CompanyLoginName)
         || string.IsNullOrWhiteSpace(request.UserName)
         || string.IsNullOrWhiteSpace(request.Email)
         || string.IsNullOrWhiteSpace(request.Password))
     {
-        return Results.BadRequest("Название компании, логин, email и пароль обязательны.");
+        return Results.BadRequest("Название компании, логин компании, логин, email и пароль обязательны.");
     }
 
     var normalizedEmail = NormalizeEmail(request.Email);
@@ -204,10 +205,10 @@ app.MapPost("/api/auth/register", async (
         return Results.BadRequest("Введите корректный email.");
     }
 
-    var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
+    var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyLoginName);
     if (await db.Companies.AnyAsync(company => company.LoginName == companyLoginName))
     {
-        return Results.Conflict("Компания с таким названием уже зарегистрирована.");
+        return Results.Conflict("Компания с таким логином уже зарегистрирована.");
     }
 
     var trialEndsAt = DateTimeOffset.UtcNow.AddDays(3);
@@ -253,14 +254,15 @@ app.MapPost("/api/setup/admin", async (
 
     var normalizedEmail = NormalizeEmail(request.Email);
     if (string.IsNullOrWhiteSpace(request.CompanyName)
+        || string.IsNullOrWhiteSpace(request.CompanyLoginName)
         || string.IsNullOrWhiteSpace(request.UserName)
         || normalizedEmail is null
         || string.IsNullOrWhiteSpace(request.Password))
     {
-        return Results.BadRequest("Название компании, логин, email и пароль обязательны.");
+        return Results.BadRequest("Название компании, логин компании, логин, email и пароль обязательны.");
     }
 
-    var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyName);
+    var companyLoginName = CompanyAccess.NormalizeLoginName(request.CompanyLoginName);
     var trialEndsAt = DateTimeOffset.UtcNow.AddDays(3);
     var company = new Company
     {
@@ -3274,7 +3276,7 @@ static string HashPasswordResetToken(string value) =>
 app.Run();
 
 record Product(int Id, string Name, string Status, decimal Price);
-record RegisterCompanyRequest(string CompanyName, string UserName, string Email, string DisplayName, string Password);
+record RegisterCompanyRequest(string CompanyName, string CompanyLoginName, string UserName, string Email, string DisplayName, string Password);
 record LoginRequest(string CompanyName, string UserName, string Password);
 record PasswordResetRequest(string CompanyName, string UserName);
 record PasswordResetConfirmRequest(string Token, string Password);

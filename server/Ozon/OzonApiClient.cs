@@ -74,6 +74,69 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         return data;
     }
 
+    public async Task<IReadOnlyList<OzonWarehouseStockSummary>> GetWarehouseStocksAsync(int limit, CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+
+        var result = new List<OzonWarehouseStockSummary>();
+        var offset = 0;
+        var pageLimit = Math.Clamp(limit, 1, 1000);
+
+        while (result.Count < limit)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/v2/analytics/stock_on_warehouses");
+            AddAuthHeaders(request);
+            request.Content = JsonContent.Create(new OzonWarehouseStockRequest(pageLimit, offset, "ALL"));
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"Ozon API returned {(int)response.StatusCode}: {content}",
+                    null,
+                    response.StatusCode);
+            }
+
+            var data = JsonSerializer.Deserialize<JsonElement>(content, JsonOptions);
+            var rows = TryGetArray(data, "result", "rows")
+                ?? TryGetArray(data, "rows")
+                ?? TryGetArray(data, "result")
+                ?? [];
+            var pageCount = 0;
+
+            foreach (var row in rows)
+            {
+                pageCount++;
+                var sku = GetLong(row, "sku", "SKU");
+                var offerId = GetString(row, "item_code", "offer_id", "offerId");
+                var warehouseName = FirstFilled(
+                    GetString(row, "warehouse_name", "warehouseName", "warehouse"),
+                    GetNestedString(row, "warehouse", "name"),
+                    "Склад Ozon");
+
+                result.Add(new OzonWarehouseStockSummary(
+                    sku,
+                    offerId,
+                    GetString(row, "item_name", "product_name", "productName", "name"),
+                    warehouseName,
+                    GetInt(row, "free_to_sell_amount", "present", "valid_stock_count", "available_stock_count", "stock"),
+                    GetInt(row, "reserved_amount", "reserved"),
+                    GetInt(row, "promised_amount", "promised")));
+            }
+
+            if (pageCount < pageLimit || pageCount == 0)
+            {
+                break;
+            }
+
+            offset += pageLimit;
+        }
+
+        return result.Take(limit).ToList();
+    }
+
     public async Task<IReadOnlyList<OzonProductSummary>> GetProductSummariesAsync(int limit, CancellationToken cancellationToken)
     {
         var list = await GetProductListAsync(limit, cancellationToken);
@@ -92,6 +155,24 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         var productIds = stocks.Items.Select(item => item.ProductId).Distinct().ToArray();
         var details = await GetProductInfoAsync(productIds, cancellationToken);
         var detailsById = details.ToDictionary(item => item.ProductId);
+        IReadOnlyList<OzonWarehouseStockSummary> warehouseStocks = [];
+        try
+        {
+            warehouseStocks = await GetWarehouseStocksAsync(Math.Max(limit, 1000), cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            warehouseStocks = [];
+        }
+
+        var warehouseStocksBySku = warehouseStocks
+            .Where(item => item.Sku > 0)
+            .GroupBy(item => item.Sku)
+            .ToDictionary(group => group.Key, group => group.OrderBy(item => item.WarehouseName).ToArray());
+        var warehouseStocksByOfferId = warehouseStocks
+            .Where(item => !string.IsNullOrWhiteSpace(item.OfferId))
+            .GroupBy(item => item.OfferId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.OrderBy(item => item.WarehouseName).ToArray(), StringComparer.OrdinalIgnoreCase);
 
         return stocks.Items.Select(item =>
         {
@@ -99,6 +180,11 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
             var fbo = item.Stocks.FirstOrDefault(stock => stock.Type.Equals("fbo", StringComparison.OrdinalIgnoreCase));
             var fbs = item.Stocks.FirstOrDefault(stock => stock.Type.Equals("fbs", StringComparison.OrdinalIgnoreCase));
             var sku = fbo?.Sku ?? fbs?.Sku ?? detail?.Sku;
+            IReadOnlyList<OzonWarehouseStockSummary> fboWarehouses = sku is not null && warehouseStocksBySku.TryGetValue(sku.Value, out var bySku)
+                ? bySku
+                : warehouseStocksByOfferId.TryGetValue(item.OfferId, out var byOfferId)
+                    ? byOfferId
+                    : [];
 
             return new OzonStockSummary(
                 item.ProductId,
@@ -112,7 +198,8 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
                 fbo?.Present ?? 0,
                 fbs?.Present ?? 0,
                 sku is null ? string.Empty : $"https://www.ozon.kz/product/{sku}/",
-                detail?.ImageUrl ?? string.Empty);
+                detail?.ImageUrl ?? string.Empty,
+                fboWarehouses);
         }).ToList();
     }
 
@@ -883,6 +970,30 @@ public class OzonApiClient(HttpClient httpClient, IOptions<OzonOptions> options)
         return 0;
     }
 
+    private static long GetLong(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var numericResult))
+            {
+                return numericResult;
+            }
+
+            if (value.ValueKind == JsonValueKind.String
+                && long.TryParse(value.GetString(), out var textResult))
+            {
+                return textResult;
+            }
+        }
+
+        return 0;
+    }
+
     private static decimal GetDecimal(JsonElement element, params string[] names)
     {
         foreach (var name in names)
@@ -996,6 +1107,20 @@ public record OzonStockItem(
     [property: JsonPropertyName("reserved")] int Reserved,
     [property: JsonPropertyName("sku")] long Sku);
 
+public record OzonWarehouseStockRequest(
+    [property: JsonPropertyName("limit")] int Limit,
+    [property: JsonPropertyName("offset")] int Offset,
+    [property: JsonPropertyName("warehouse_type")] string WarehouseType);
+
+public record OzonWarehouseStockSummary(
+    long Sku,
+    string OfferId,
+    string ProductName,
+    string WarehouseName,
+    int Present,
+    int Reserved,
+    int Promised);
+
 public record OzonProductInfoListRequest(
     [property: JsonPropertyName("product_id")] IReadOnlyCollection<long> ProductIds);
 
@@ -1047,7 +1172,8 @@ public record OzonStockSummary(
     int FboPresent,
     int FbsPresent,
     string ProductUrl,
-    string ImageUrl);
+    string ImageUrl,
+    IReadOnlyList<OzonWarehouseStockSummary> FboWarehouses);
 
 public record OzonPriceUpdateRequest(
     long ProductId,
