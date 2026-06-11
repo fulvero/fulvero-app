@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - ./data-protection-keys:/app/data-protection-keys
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Database__ApplyMigrationsOnStartup: "true"
+      Https__UseRedirection: "${HTTPS_USE_REDIRECTION:-false}"
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__Key: ${JWT_KEY}
+      Ozon__BaseUrl: ${OZON_BASE_URL}
+      Ozon__ClientId: ${OZON_CLIENT_ID}
+      Ozon__ApiKey: ${OZON_API_KEY}
+      YooKassa__ShopId: ${YOOKASSA_SHOP_ID}
+      YooKassa__SecretKey: ${YOOKASSA_SECRET_KEY}
+      YooKassa__ReturnUrl: ${YOOKASSA_RETURN_URL}
+      YooKassa__MonthlyAmount: ${YOOKASSA_MONTHLY_AMOUNT:-5900}
+      YooKassa__Currency: ${YOOKASSA_CURRENCY:-RUB}
+      Smtp__Enabled: ${SMTP_ENABLED:-false}
+      Smtp__Host: ${SMTP_HOST:-smtp.beget.com}
+      Smtp__Port: ${SMTP_PORT:-465}
+      Smtp__EnableSsl: ${SMTP_ENABLE_SSL:-true}
+      Smtp__UserName: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__FromEmail: ${SMTP_FROM_EMAIL:-}
+      Smtp__FromName: ${SMTP_FROM_NAME:-Fulvero}
+      Smtp__ReplyToEmail: ${SMTP_REPLY_TO_EMAIL:-}
+      Smtp__LogoFilePath: ${SMTP_LOGO_FILE_PATH:-wwwroot/email-banner.jpg}
+      Smtp__LogoUrl: ${SMTP_LOGO_URL:-https://fulvero.ru/assets/fulvero-logo.png}
+      Telegram__Enabled: ${TELEGRAM_ENABLED:-false}
+      Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
+      Telegram__BotUsername: ${TELEGRAM_BOT_USERNAME:-}
+      Telegram__PollingIntervalSeconds: ${TELEGRAM_POLLING_INTERVAL_SECONDS:-5}
+      Telegram__NotificationIntervalMinutes: ${TELEGRAM_NOTIFICATION_INTERVAL_MINUTES:-720}
+
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${ADMINER_BIND:-127.0.0.1}:${ADMINER_PORT:-8082}:8080"
+
+volumes:
+  postgres_local_data:
