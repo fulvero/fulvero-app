@@ -143,9 +143,9 @@
   top: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: minmax(230px, auto) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(210px, auto) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   min-height: 70px;
   padding: 10px 20px;
   border-bottom: 1px solid #d9dee7;
@@ -174,7 +174,7 @@
 }
 
 .company-name {
-  max-width: 190px;
+  max-width: 170px;
   overflow: hidden;
   color: #121826;
   font-size: 14px;
@@ -569,14 +569,15 @@
 .main-tabs {
   display: flex;
   flex: 1 1 auto;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px;
   justify-content: center;
-  overflow-x: auto;
-  padding: 4px;
+  overflow: visible;
+  padding: 2px;
 }
 
 .main-tabs button {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -584,13 +585,14 @@
   border: 1px solid transparent;
   border-radius: 8px;
   min-height: 38px;
-  padding: 0 12px;
+  padding: 0 8px;
   color: #344054;
   background: transparent;
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 800;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .main-tabs button.active {
@@ -1363,6 +1365,7 @@
   font-size: 12px;
   font-weight: 900;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .stock-warehouses-button:hover {
@@ -3586,12 +3589,13 @@
   .main-tabs {
     flex: none;
     justify-content: flex-start;
-    margin: 0 -12px;
-    padding: 0 12px 4px;
-    scrollbar-width: thin;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
   }
 
   .main-tabs button {
+    flex: 1 1 auto;
     min-height: 42px;
     border: 1px solid #cfd6e3;
     border-radius: 8px;
